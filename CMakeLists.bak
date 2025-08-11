@@ -1,0 +1,49 @@
+cmake_minimum_required(VERSION 3.16)
+
+# 项目信息
+project(AIcp# VERSION 1.0.0 LANGUAGES CXX)
+
+# 设置C++标准
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# 检查构建类型
+if(NOT CMAKE_BUILD_TYPE)
+    set(CMAKE_BUILD_TYPE Release)
+endif()
+
+# 设置输出目录
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
+set(CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
+
+# 查找Qt6组件
+find_package(Qt6 REQUIRED COMPONENTS Core Widgets Gui Multimedia)
+
+# 查找FFmpeg库
+# 注意：在实际项目中，你可能需要指定FFmpeg的路径
+# set(FFMPEG_ROOT "/path/to/ffmpeg" CACHE PATH "FFmpeg root directory")
+find_path(AVCODEC_INCLUDE_DIR libavcodec/avcodec.h)
+find_library(AVCODEC_LIBRARY avcodec)
+find_path(AVFORMAT_INCLUDE_DIR libavformat/avformat.h)
+find_library(AVFORMAT_LIBRARY avformat)
+find_path(AVUTIL_INCLUDE_DIR libavutil/avutil.h)
+find_library(AVUTIL_LIBRARY avutil)
+find_path(SWSCALE_INCLUDE_DIR libswscale/swscale.h)
+find_library(SWSCALE_LIBRARY swscale)
+
+# 包含目录
+include_directories(
+    ${CMAKE_SOURCE_DIR}/include
+    ${AVCODEC_INCLUDE_DIR}
+    ${AVFORMAT_INCLUDE_DIR}
+    ${AVUTIL_INCLUDE_DIR}
+    ${SWSCALE_INCLUDE_DIR}
+)
+
+# 添加子目录
+add_subdirectory(src)
+
+# 安装规则
+install(TARGETS AIcp# RUNTIME DESTINATION bin)
+install(DIRECTORY assets/ DESTINATION share/AIcp#)
