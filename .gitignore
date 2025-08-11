@@ -1,0 +1,6 @@
+# Ignore build outputs
+build/
+build-win/
+*.zip
+*.exe
+
