@@ -12,6 +12,7 @@
 #include <QGroupBox>
 #include <QLineEdit>
 #include <QComboBox>
+#include <QCheckBox>
 #include <QDir>
 #include <QScreen>
 #include <QGuiApplication>
@@ -83,6 +84,10 @@ void MainWindow::setupUI() {
     }
     screenLayout->addWidget(screenCombo);
 
+    // 自动最小化选项
+    autoMinimizeCheckBox = new QCheckBox("录制时自动最小化窗口");
+    autoMinimizeCheckBox->setChecked(true); // 默认开启
+
     // 状态显示
     statusLabel = new QLabel("就绪");
     statusLabel->setAlignment(Qt::AlignCenter);
@@ -96,6 +101,7 @@ void MainWindow::setupUI() {
     controlLayout->addLayout(pathLayout);
     controlLayout->addLayout(fpsLayout);
     controlLayout->addLayout(screenLayout); // 加入屏幕选择
+    controlLayout->addWidget(autoMinimizeCheckBox); // 加入自动最小化选项
     controlLayout->addWidget(statusLabel);
     controlLayout->addWidget(timeLabel);
     
@@ -138,21 +144,34 @@ void MainWindow::onStartRecording() {
         videoCapture->setCaptureRegion(g.x(), g.y(), g.width(), g.height());
     }
     
-    // 开始录制
-    if (videoCapture->startCapture(outputPath.toStdString())) {
-        isRecording = true;
-        recordStartTime = QDateTime::currentMSecsSinceEpoch();
+    // 禁用开始按钮
+    startButton->setEnabled(false);
+    
+    // 根据用户设置决定是否最小化
+    if (autoMinimizeCheckBox->isChecked()) {
+        // 显示准备状态
+        statusLabel->setText("准备录制中，窗口将在2秒后最小化...");
+        statusLabel->setStyleSheet("font-size: 16px; padding: 10px; color: orange;");
         
-        startButton->setEnabled(false);
-        stopButton->setEnabled(true);
-        statusLabel->setText("录制中...");
-        statusLabel->setStyleSheet("font-size: 16px; padding: 10px; color: red;");
-        
-        outputPathEdit->setText(outputPath);
-        
-        updateTimer->start(1000);
+        // 使用定时器延时最小化窗口并开始录制
+        QTimer::singleShot(2000, this, [this, outputPath]() {
+            // 最小化窗口
+            this->showMinimized();
+            
+            // 再等待1秒让窗口完全最小化
+            QTimer::singleShot(1000, this, [this, outputPath]() {
+                this->startRecordingInternal(outputPath);
+            });
+        });
     } else {
-        QMessageBox::critical(this, "错误", "录制启动失败");
+        // 直接开始录制，不最小化
+        statusLabel->setText("开始录制...");
+        statusLabel->setStyleSheet("font-size: 16px; padding: 10px; color: orange;");
+        
+        // 稍微延时一下以显示状态
+        QTimer::singleShot(500, this, [this, outputPath]() {
+            this->startRecordingInternal(outputPath);
+        });
     }
 }
 
@@ -171,11 +190,41 @@ void MainWindow::onStopRecording() {
     
     updateTimer->stop();
     
+    // 恢复窗口显示
+    this->showNormal();
+    this->raise();
+    this->activateWindow();
+    
     QString msg = QString("录制完成！\n文件: %1\n时长: %2")
         .arg(outputPathEdit->text())
         .arg(formatDuration(duration));
     
     QMessageBox::information(this, "录制完成", msg);
+}
+
+void MainWindow::startRecordingInternal(const QString& outputPath) {
+    // 开始录制
+    if (videoCapture->startCapture(outputPath.toStdString())) {
+        isRecording = true;
+        recordStartTime = QDateTime::currentMSecsSinceEpoch();
+        
+        stopButton->setEnabled(true);
+        statusLabel->setText("录制中...");
+        statusLabel->setStyleSheet("font-size: 16px; padding: 10px; color: red;");
+        
+        outputPathEdit->setText(outputPath);
+        
+        updateTimer->start(1000);
+    } else {
+        // 如果录制失败，恢复窗口和按钮状态
+        startButton->setEnabled(true);
+        statusLabel->setText("就绪");
+        statusLabel->setStyleSheet("font-size: 16px; padding: 10px;");
+        if (autoMinimizeCheckBox->isChecked()) {
+            this->showNormal();
+        }
+        QMessageBox::critical(this, "错误", "录制启动失败");
+    }
 }
 
 void MainWindow::onBrowsePath() {

@@ -7,6 +7,7 @@
 #include <QComboBox>
 #include <QLabel>
 #include <QTimer>
+#include <QCheckBox>
 #include <memory>
 #include "SimpleCapture.h"
 
@@ -25,6 +26,7 @@ private slots:
 
 private:
     void setupUI();
+    void startRecordingInternal(const QString& outputPath);
     QString formatDuration(qint64 ms);
 
     QPushButton *startButton;
@@ -33,6 +35,7 @@ private:
     QLineEdit *outputPathEdit;
     QComboBox *fpsCombo;
     QComboBox *screenCombo; // 新增：选择录制屏幕
+    QCheckBox *autoMinimizeCheckBox; // 新增：自动最小化选项
     QLabel *statusLabel;
     QLabel *timeLabel;
     QTimer *updateTimer;

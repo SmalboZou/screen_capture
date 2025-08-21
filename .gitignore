@@ -1,6 +1,7 @@
 # Ignore build outputs
 build/
 build-win/
+build-test/
 *.zip
 *.exe
 
