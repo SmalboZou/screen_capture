@@ -19,6 +19,7 @@
 #include <QScreen>
 #include <QGuiApplication>
 #include <QSplitter>
+#include <iostream>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
@@ -27,7 +28,7 @@ MainWindow::MainWindow(QWidget *parent)
     , recordEndTime(0)
     , recordingDurationMs(0)
 {
-    setWindowTitle("AIcp 智能屏幕录制工具");
+    setWindowTitle("延时录屏工具");
     setMinimumSize(650, 450);
     resize(700, 500);
     
@@ -118,8 +119,14 @@ void MainWindow::setupUI() {
     for (int i = 0; i < screens.size(); ++i) {
         const auto s = screens[i];
         QString name = s->name().isEmpty() ? QString("屏幕 %1").arg(i + 1) : s->name();
+        
+        // 获取物理分辨率而不是逻辑分辨率
         QRect g = s->geometry();
-        screenCombo->addItem(QString("%1 (%2×%3)").arg(name).arg(g.width()).arg(g.height()), i);
+        qreal devicePixelRatio = s->devicePixelRatio();
+        int physicalWidth = g.width() * devicePixelRatio;
+        int physicalHeight = g.height() * devicePixelRatio;
+        
+        screenCombo->addItem(QString("%1 (%2×%3, 缩放: %4x)").arg(name).arg(physicalWidth).arg(physicalHeight).arg(devicePixelRatio), i);
     }
     settingsLayout->addWidget(screenCombo, 3, 1, 1, 2);
 
@@ -340,7 +347,19 @@ void MainWindow::onStartRecording() {
     const auto screens = QGuiApplication::screens();
     if (idx >= 0 && idx < screens.size()) {
         QRect g = screens[idx]->geometry();
-        videoCapture->setCaptureRegion(g.x(), g.y(), g.width(), g.height());
+        qreal devicePixelRatio = screens[idx]->devicePixelRatio();
+        
+        // 计算物理分辨率
+        int physicalX = g.x() * devicePixelRatio;
+        int physicalY = g.y() * devicePixelRatio;
+        int physicalWidth = g.width() * devicePixelRatio;
+        int physicalHeight = g.height() * devicePixelRatio;
+        
+        videoCapture->setCaptureRegion(physicalX, physicalY, physicalWidth, physicalHeight);
+        
+        std::cout << "设置录制区域: " << physicalWidth << "x" << physicalHeight 
+                  << " (逻辑: " << g.width() << "x" << g.height() 
+                  << ", 缩放: " << devicePixelRatio << ")" << std::endl;
     }
     
     // 计算录制时长（如果启用定时）

@@ -50,6 +50,10 @@ public:
             args << "-offset_x" << QString::number(regionX);
             args << "-offset_y" << QString::number(regionY);
             args << "-video_size" << QString::number(regionW) + "x" + QString::number(regionH);
+            std::cout << "FFmpeg参数: 区域=" << regionX << "," << regionY << " 尺寸=" << regionW << "x" << regionH << std::endl;
+        } else {
+            // 当没有设置区域时，强制使用主显示器的完整分辨率
+            std::cout << "使用默认桌面捕获（可能受DPI影响）" << std::endl;
         }
         // 若未设置区域，gdigrab 默认为主屏整体
         args << "-framerate" << QString::number(frameRate > 0 ? frameRate : 30);

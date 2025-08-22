@@ -2,6 +2,10 @@
 #include "MainWindow.h"
 
 int main(int argc, char *argv[]) {
+    // 设置高DPI支持，确保获取真实的屏幕分辨率
+    QApplication::setAttribute(Qt::AA_EnableHighDpiScaling, true);
+    QApplication::setAttribute(Qt::AA_UseHighDpiPixmaps, true);
+    
     QApplication app(argc, argv);
     
     app.setApplicationName("AIcp");
