@@ -1,10 +1,111 @@
-# Ignore build outputs
+# =============================================================================
+# AIcp Project .gitignore
+# =============================================================================
+
+# Build directories (all variants)
 build/
-build-win/
-build-test/
-build-release/
-build-kylinos/
+build-*/
+CMakeFiles/
+cmake_install.cmake
+CMakeCache.txt
+
+# Generated Visual Studio files
+*.sln
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+ALL_BUILD.*
+ZERO_CHECK.*
+x64/
+Win32/
+.vs/
+
+# Qt generated files
+*.pro.user
+*.pro.user.*
+*_autogen/
+.qt/
+moc_*.cpp
+moc_*.h
+qrc_*.cpp
+ui_*.h
+
+# Deploy and distribution
 deploy/
-*.zip
+dist/
+package/
 *.exe
+*.msi
+*.dmg
+*.pkg
+*.deb
+*.rpm
+*.AppImage
+*.zip
+*.tar.gz
+*.7z
+
+# Platform specific
+# Windows
+Thumbs.db
+*.tmp
+*.log
+
+# macOS
+.DS_Store
+*.app
+
+# Linux
+*.so
+*.a
+
+# Backup files
+*.bak
+*.backup
+*~
+*.swp
+*.swo
+.#*
+
+# IDE and editor files
+.vscode/
+.idea/
+*.sublime-*
+*.kate-swp
+.kdev4/
+*.kdev4
+
+# Qt Creator
+*.pro.user*
+*.qbs.user
+*.qbs.user.*
+
+# Compilation databases
+compile_commands.json
+
+# Installation logs
+aqtinstall.log
+install.log
+
+# Temporary packaging files
+*.nsi.tmp
+packaging/temp/
+
+# Auto-generated resource files (but keep source icons)
+# Keep: resources/icons/*.png (these are source assets)
+# Ignore: auto-generated qrc derivatives if any
+
+# Test outputs
+test_results/
+coverage/
+
+# Documentation build outputs
+docs/_build/
+docs/html/
+docs/latex/
+
+# Environment and local config
+.env
+local.properties
+config.local
 
