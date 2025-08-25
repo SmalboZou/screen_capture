@@ -41,10 +41,6 @@ elseif(WIN32)
     list(APPEND SOURCES
         src/SimpleCapture_win.cpp
     )
-elseif(UNIX)
-    list(APPEND SOURCES
-        src/SimpleCapture_linux.cpp
-    )
 endif()
 
 # 创建可执行文件（在 Windows 使用 WIN32 子系统隐藏控制台）
@@ -86,8 +82,6 @@ if(APPLE)
     target_compile_definitions(AIcp PRIVATE PLATFORM_MACOS)
 elseif(WIN32)
     target_compile_definitions(AIcp PRIVATE PLATFORM_WINDOWS)
-elseif(UNIX)
-    target_compile_definitions(AIcp PRIVATE PLATFORM_LINUX)
 endif()
 
 # macOS应用程序包配置
@@ -118,33 +112,4 @@ if(WIN32)
         file(WRITE ${APP_ICON_RC} "IDI_ICON1 ICON \"${APP_ICON_ICO}\"\n")
         list(APPEND SOURCES ${APP_ICON_RC})
     endif()
-endif()
-
-if(UNIX AND NOT APPLE)
-    include(GNUInstallDirs)
-    install(TARGETS AIcp RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
-    if(EXISTS ${CMAKE_SOURCE_DIR}/LICENSE)
-        install(FILES ${CMAKE_SOURCE_DIR}/LICENSE DESTINATION ${CMAKE_INSTALL_DOCDIR})
-    endif()
-    set(APP_ICON_PNG ${CMAKE_SOURCE_DIR}/resources/app.png)
-    if(EXISTS ${APP_ICON_PNG})
-        install(FILES ${APP_ICON_PNG} DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/icons/hicolor/256x256/apps RENAME aicp.png)
-    endif()
-    configure_file(${CMAKE_SOURCE_DIR}/packaging/aicp.desktop.in ${CMAKE_BINARY_DIR}/aicp.desktop @ONLY)
-    install(FILES ${CMAKE_BINARY_DIR}/aicp.desktop DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/applications)
-
-    set(CPACK_PACKAGE_NAME "aicp")
-    set(CPACK_PACKAGE_VERSION ${PROJECT_VERSION})
-    set(CPACK_PACKAGE_CONTACT "maintainer@example.com")
-    set(CPACK_DEBIAN_PACKAGE_MAINTAINER "AIcp Maintainer")
-    set(CPACK_DEBIAN_PACKAGE_SECTION "video")
-    set(CPACK_DEBIAN_PACKAGE_DEPENDS "libqt6core6 (>=6.2), libqt6gui6 (>=6.2), libqt6widgets6 (>=6.2), ffmpeg")
-    if(CMAKE_SYSTEM_PROCESSOR STREQUAL "aarch64")
-        set(CPACK_DEBIAN_ARCHITECTURE arm64)
-    else()
-        set(CPACK_DEBIAN_ARCHITECTURE ${CMAKE_SYSTEM_PROCESSOR})
-    endif()
-    set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
-    set(CPACK_GENERATOR "DEB")
-    include(CPack)
 endif()

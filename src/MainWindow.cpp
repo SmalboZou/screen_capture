@@ -59,14 +59,30 @@ void MainWindow::setupUI() {
     QVBoxLayout *leftLayout = new QVBoxLayout(leftWidget);
     
     // 录制控制组
-    QGroupBox *controlGroup = new QGroupBox("🎥 录制控制");
+    QGroupBox *controlGroup = new QGroupBox("录制控制");
     controlGroup->setStyleSheet("QGroupBox { font-weight: bold; padding-top: 15px; }");
     QVBoxLayout *controlLayout = new QVBoxLayout(controlGroup);
     
     // 录制按钮 - 使用网格布局使按钮更大更醒目
     QGridLayout *buttonGrid = new QGridLayout();
-    startButton = new QPushButton("🔴 开始录制");
-    stopButton = new QPushButton("⏹️ 停止录制");
+    startButton = new QPushButton();
+    stopButton = new QPushButton();
+    
+    // 设置按钮图标和文本
+    startButton->setText("开始录制");
+    // 使用资源文件中的图标，如果加载失败则回退到标准图标
+    QIcon startIcon(":/icons/control.png");
+    if (startIcon.isNull()) {
+        startIcon = style()->standardIcon(QStyle::SP_MediaPlay);
+    }
+    startButton->setIcon(startIcon);
+    
+    stopButton->setText("停止录制");
+    QIcon stopIcon(":/icons/control.png");
+    if (stopIcon.isNull()) {
+        stopIcon = style()->standardIcon(QStyle::SP_MediaStop);
+    }
+    stopButton->setIcon(stopIcon);
     
     startButton->setMinimumHeight(50);
     stopButton->setMinimumHeight(50);
@@ -90,33 +106,38 @@ void MainWindow::setupUI() {
     controlLayout->addLayout(buttonGrid);
     
     // 录制设置组
-    QGroupBox *settingsGroup = new QGroupBox("⚙️ 录制设置");
+    QGroupBox *settingsGroup = new QGroupBox("录制设置");
     settingsGroup->setStyleSheet("QGroupBox { font-weight: bold; padding-top: 15px; }");
     QGridLayout *settingsLayout = new QGridLayout(settingsGroup);
     
     // 输出路径
-    settingsLayout->addWidget(new QLabel("📁 输出路径:"), 0, 0);
+    settingsLayout->addWidget(new QLabel("输出路径:"), 0, 0);
     outputPathEdit = new QLineEdit();
     outputPathEdit->setPlaceholderText("请选择文件保存路径");
     browseButton = new QPushButton("浏览...");
+    QIcon browseIcon(":/icons/path.png");
+    if (browseIcon.isNull()) {
+        browseIcon = style()->standardIcon(QStyle::SP_DirOpenIcon);
+    }
+    browseButton->setIcon(browseIcon);
     browseButton->setMaximumWidth(80);
     settingsLayout->addWidget(outputPathEdit, 0, 1);
     settingsLayout->addWidget(browseButton, 0, 2);
     
     // 输出文件名
-    settingsLayout->addWidget(new QLabel("📝 文件名:"), 1, 0);
+    settingsLayout->addWidget(new QLabel("文件名:"), 1, 0);
     outputNameEdit = new QLineEdit();
     outputNameEdit->setPlaceholderText("请输入文件名称");
     settingsLayout->addWidget(outputNameEdit, 1, 1, 1, 2);
 
     // 帧率设置
-    settingsLayout->addWidget(new QLabel("🎬 帧率:"), 2, 0);
+    settingsLayout->addWidget(new QLabel("帧率:"), 2, 0);
     fpsCombo = new QComboBox();
     fpsCombo->addItems({"30 FPS", "60 FPS", "24 FPS"});
     settingsLayout->addWidget(fpsCombo, 2, 1, 1, 2);
 
     // 屏幕选择
-    settingsLayout->addWidget(new QLabel("🖥️ 屏幕:"), 3, 0);
+    settingsLayout->addWidget(new QLabel("屏幕:"), 3, 0);
     screenCombo = new QComboBox();
     const auto screens = QGuiApplication::screens();
     for (int i = 0; i < screens.size(); ++i) {
@@ -134,12 +155,17 @@ void MainWindow::setupUI() {
     settingsLayout->addWidget(screenCombo, 3, 1, 1, 2);
 
     // 定时录制组
-    QGroupBox *timerGroup = new QGroupBox("⏰ 定时录制");
+    QGroupBox *timerGroup = new QGroupBox("定时录制");
     timerGroup->setStyleSheet("QGroupBox { font-weight: bold; padding-top: 15px; }");
     QVBoxLayout *timerLayout = new QVBoxLayout(timerGroup);
     
     // 定时开关
     timerEnabledCheckBox = new QCheckBox("启用定时录制");
+    QIcon timerIcon(":/icons/timer.png");
+    if (timerIcon.isNull()) {
+        timerIcon = style()->standardIcon(QStyle::SP_ComputerIcon);
+    }
+    timerEnabledCheckBox->setIcon(timerIcon);
     timerLayout->addWidget(timerEnabledCheckBox);
     
     // 时间设置
@@ -151,18 +177,21 @@ void MainWindow::setupUI() {
     hoursSpinBox->setValue(0);
     hoursSpinBox->setSuffix(" 小时");
     hoursSpinBox->setEnabled(false);
+    hoursSpinBox->setMinimumWidth(80);
     
     minutesSpinBox = new QSpinBox();
     minutesSpinBox->setRange(0, 59);
     minutesSpinBox->setValue(5);
     minutesSpinBox->setSuffix(" 分钟");
     minutesSpinBox->setEnabled(false);
+    minutesSpinBox->setMinimumWidth(80);
     
     secondsSpinBox = new QSpinBox();
     secondsSpinBox->setRange(0, 59);
     secondsSpinBox->setValue(0);
     secondsSpinBox->setSuffix(" 秒");
     secondsSpinBox->setEnabled(false);
+    secondsSpinBox->setMinimumWidth(80);
     
     timeLayout->addWidget(hoursSpinBox);
     timeLayout->addWidget(minutesSpinBox);
@@ -172,12 +201,17 @@ void MainWindow::setupUI() {
     timerLayout->addLayout(timeLayout);
     
     // 延时录制组
-    QGroupBox *optionsGroup = new QGroupBox("⏳ 延时录制");
+    QGroupBox *optionsGroup = new QGroupBox("延时录制");
     optionsGroup->setStyleSheet("QGroupBox { font-weight: bold; padding-top: 15px; }");
     QVBoxLayout *optionsLayout = new QVBoxLayout(optionsGroup);
     
     autoMinimizeCheckBox = new QCheckBox("录制时自动最小化窗口");
     autoMinimizeCheckBox->setChecked(true);
+    QIcon delayIcon(":/icons/delay.png");
+    if (delayIcon.isNull()) {
+        delayIcon = style()->standardIcon(QStyle::SP_DialogApplyButton);
+    }
+    autoMinimizeCheckBox->setIcon(delayIcon);
     optionsLayout->addWidget(autoMinimizeCheckBox);
     
     // 延时时间设置
@@ -189,6 +223,7 @@ void MainWindow::setupUI() {
     delaySecondsSpinBox->setValue(2);
     delaySecondsSpinBox->setSuffix(" 秒");
     delaySecondsSpinBox->setEnabled(true); // 默认启用，因为自动最小化默认选中
+    delaySecondsSpinBox->setMinimumWidth(80);
     delayLayout->addWidget(delaySecondsSpinBox);
     delayLayout->addWidget(new QLabel("后开始录制"));
     delayLayout->addStretch();
@@ -208,7 +243,7 @@ void MainWindow::setupUI() {
     QVBoxLayout *rightLayout = new QVBoxLayout(rightWidget);
     
     // 状态显示组
-    QGroupBox *statusGroup = new QGroupBox("📊 录制状态");
+    QGroupBox *statusGroup = new QGroupBox("录制状态");
     statusGroup->setStyleSheet("QGroupBox { font-weight: bold; padding-top: 15px; }");
     QVBoxLayout *statusLayout = new QVBoxLayout(statusGroup);
     
