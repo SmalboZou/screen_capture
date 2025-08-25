@@ -1,6 +1,10 @@
 # Ignore build outputs
 build/
 build-win/
+build-test/
+build-release/
+build-kylinos/
+deploy/
 *.zip
 *.exe
 

@@ -1,5 +1,7 @@
-// SimpleCapture_win.cpp
-// Windows 真实录屏实现：通过 FFmpeg (gdigrab) 进行屏幕捕获与 H.264 编码
+// SimpleCapture_linux.cpp
+// Linux 屏幕录制实现：通过 FFmpeg (x11grab) 进行屏幕捕获与 H.264 编码
+// 注意：Wayland 下 x11grab 可能失效，可后续扩展 pipewire 支持。
+
 #include "SimpleCapture.h"
 #include <iostream>
 #include <memory>
@@ -9,11 +11,12 @@
 #include <QFileInfo>
 #include <QDir>
 #include <QStringList>
+#include <QProcessEnvironment>
 
-class WindowsSimpleCapture : public SimpleCapture {
+class LinuxSimpleCapture : public SimpleCapture {
 public:
-    WindowsSimpleCapture() = default;
-    ~WindowsSimpleCapture() override {
+    LinuxSimpleCapture() = default;
+    ~LinuxSimpleCapture() override {
         if (ffmpeg) {
             stopCapture();
             delete ffmpeg;
@@ -22,16 +25,17 @@ public:
     }
 
     bool init() override {
-        // 优先从应用目录查找 ffmpeg.exe，其次使用 PATH 中的 ffmpeg
-        ffmpegPath = QDir(QCoreApplication::applicationDirPath()).filePath("ffmpeg.exe");
+        ffmpegPath = QDir(QCoreApplication::applicationDirPath()).filePath("ffmpeg");
         if (!QFileInfo::exists(ffmpegPath)) {
-            ffmpegPath = "ffmpeg"; // 走 PATH
+            ffmpegPath = "ffmpeg";
         }
-        // 验证 ffmpeg 可用
         int code = QProcess::execute(ffmpegPath, {"-version"});
         if (code != 0) {
-            std::cerr << "无法找到可用的 ffmpeg，可执行文件应放在程序目录或加入 PATH" << std::endl;
+            std::cerr << "无法找到可用的 ffmpeg，请安装 (sudo apt install ffmpeg) 或放置于程序目录" << std::endl;
             return false;
+        }
+        if (!qEnvironmentVariableIsEmpty("WAYLAND_DISPLAY")) {
+            std::cerr << "警告：Wayland 会话中当前实现使用 x11grab，可能无法工作。" << std::endl;
         }
         return true;
     }
@@ -41,30 +45,19 @@ public:
             std::cerr << "已在录制中" << std::endl;
             return false;
         }
-
-        // 准备参数
+        QString displayEnv = qEnvironmentVariableIsEmpty("DISPLAY") ? QString(":0.0") : qgetenv("DISPLAY");
         QStringList args;
-        args << "-y";
-        args << "-f" << "gdigrab";
+        args << "-y" << "-f" << "x11grab" << "-framerate" << QString::number(frameRate > 0 ? frameRate : 30);
         if (captureRegionSet) {
-            args << "-offset_x" << QString::number(regionX);
-            args << "-offset_y" << QString::number(regionY);
             args << "-video_size" << QString::number(regionW) + "x" + QString::number(regionH);
-            std::cout << "FFmpeg参数: 区域=" << regionX << "," << regionY << " 尺寸=" << regionW << "x" << regionH << std::endl;
+            args << "-i" << QString("%1+%2,%3").arg(displayEnv).arg(regionX).arg(regionY);
+            std::cout << "FFmpeg 参数: 区域=" << regionX << "," << regionY << " 尺寸=" << regionW << "x" << regionH << std::endl;
         } else {
-            // 当没有设置区域时，强制使用主显示器的完整分辨率
-            std::cout << "使用默认桌面捕获（可能受DPI影响）" << std::endl;
+            args << "-i" << displayEnv;
+            std::cout << "使用默认全屏捕获 display=" << displayEnv.toStdString() << std::endl;
         }
-        // 若未设置区域，gdigrab 默认为主屏整体
-        args << "-framerate" << QString::number(frameRate > 0 ? frameRate : 30);
-        args << "-i" << "desktop";
-        // 编码参数：H.264 + yuv420p 保证广泛兼容
-        args << "-pix_fmt" << "yuv420p";
-        args << "-c:v" << "libx264";
-        args << "-preset" << "veryfast";
-        args << "-crf" << "23";
+        args << "-pix_fmt" << "yuv420p" << "-c:v" << "libx264" << "-preset" << "veryfast" << "-crf" << "23";
         args << QString::fromStdString(outputPath);
-
         if (!ffmpeg) ffmpeg = new QProcess();
         ffmpeg->setProcessChannelMode(QProcess::MergedChannels);
         ffmpeg->setProgram(ffmpegPath);
@@ -72,7 +65,6 @@ public:
         ffmpeg->setWorkingDirectory(QCoreApplication::applicationDirPath());
         ffmpeg->setProcessEnvironment(QProcessEnvironment::systemEnvironment());
         ffmpeg->start();
-        // 打开标准输入以便优雅停止（发送 'q'）
         ffmpeg->waitForStarted(3000);
         if (ffmpeg->state() != QProcess::Running) {
             std::cerr << "启动 ffmpeg 失败" << std::endl;
@@ -106,27 +98,23 @@ public:
     }
 
     bool isCapturing() const override { return capturing; }
-
     void setFrameRate(int fps) override { frameRate = fps; }
-
-    void setCaptureRegion(int x, int y, int width, int height) override {
-        regionX = x; regionY = y; regionW = width; regionH = height; captureRegionSet = true;
-    }
+    void setCaptureRegion(int x, int y, int width, int height) override { regionX = x; regionY = y; regionW = width; regionH = height; captureRegionSet = true; }
 
 private:
     QProcess* ffmpeg = nullptr;
     QString ffmpegPath;
     bool capturing = false;
     int frameRate = 30;
-    int regionX = 0, regionY = 0, regionW = 0, regionH = 0; 
+    int regionX = 0, regionY = 0, regionW = 0, regionH = 0;
     bool captureRegionSet = false;
 };
 
 std::unique_ptr<SimpleCapture> createSimpleCapture() {
-#ifdef _WIN32
-    return std::make_unique<WindowsSimpleCapture>();
+#if defined(__linux__) && !defined(_WIN32) && !defined(__APPLE__)
+    return std::make_unique<LinuxSimpleCapture>();
 #else
-    static_assert(false, "Wrong platform for WindowsSimpleCapture");
+    static_assert(false, "Wrong platform for LinuxSimpleCapture");
     return nullptr;
 #endif
 }

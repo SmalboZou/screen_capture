@@ -10,6 +10,7 @@
 #include <QTimer>
 #include <QStandardPaths>
 #include <QDateTime>
+#include <QCoreApplication>
 #include <QGroupBox>
 #include <QLineEdit>
 #include <QComboBox>
@@ -65,8 +66,13 @@ SimpleMainWindow::SimpleMainWindow(QWidget *parent)
     
     setupUI();
     
-    // 设置窗口图标
-    setWindowIcon(QIcon());
+    // 设置窗口图标 - 使用PNG格式
+    QString iconPath = QCoreApplication::applicationDirPath() + "/resources/app.png";
+    QIcon customIcon(iconPath);
+    setWindowIcon(customIcon);
+    
+    // 也为整个应用程序设置图标
+    QApplication::setWindowIcon(customIcon);
 }
 
 SimpleMainWindow::~SimpleMainWindow() = default;
