@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Version=@PROJECT_VERSION@
+Name=AIcp
+GenericName=Screen Recorder
+Comment=AIcp 屏幕录制工具
+Exec=AIcp
+Icon=aicp
+Terminal=false
+Categories=Video;AudioVideo;Utility;
+StartupNotify=true

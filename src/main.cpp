@@ -1,4 +1,7 @@
 #include <QApplication>
+#include <QIcon>
+#include <QDir>
+#include <QCoreApplication>
 #include "MainWindow.h"
 
 int main(int argc, char *argv[]) {
@@ -11,6 +14,12 @@ int main(int argc, char *argv[]) {
     app.setApplicationName("AIcp");
     app.setApplicationVersion("1.0.0");
     app.setOrganizationName("AIcp Project");
+    
+    // 设置应用程序图标 - 使用嵌入的资源
+    QIcon appIcon(":/app.ico");
+    if (!appIcon.isNull()) {
+        app.setWindowIcon(appIcon);
+    }
     
     MainWindow window;
     window.show();

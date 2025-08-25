@@ -19,6 +19,9 @@
 #include <QScreen>
 #include <QGuiApplication>
 #include <QSplitter>
+#include <QCoreApplication>
+#include <QApplication>
+#include <QIcon>
 #include <iostream>
 
 MainWindow::MainWindow(QWidget *parent)
