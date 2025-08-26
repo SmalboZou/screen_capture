@@ -16,6 +16,8 @@
 #include <QNetworkReply>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QJsonArray>
+#include <QJsonValue>
 
 struct AISummaryConfig {
     QString provider;        // 模型提供商
@@ -49,11 +51,16 @@ private slots:
     void onProviderChanged(const QString& provider);
     void onTestConnection();
     void onNetworkReplyFinished();
+    void onModelListReplyFinished();
+    void onRefreshModelsClicked();
     
 private:
     void setupUI();
     void updateModelOptions();
     void populateDefaultSettings();
+    void fetchAvailableModels();
+    void parseModelListResponse(const QByteArray& data);
+    bool isVisionModel(const QString& modelName) const;
     QString getDefaultBaseUrl(const QString& provider) const;
     QStringList getDefaultModels(const QString& provider) const;
     
@@ -62,15 +69,18 @@ private:
     QLineEdit *baseUrlEdit;
     QLineEdit *apiKeyEdit;
     QComboBox *modelCombo;
+    QPushButton *refreshModelsButton;
     QPushButton *testButton;
     QPushButton *okButton;
     QPushButton *cancelButton;
     QLabel *statusLabel;
     QProgressBar *progressBar;
+    QLabel *modelStatusLabel;
     
     // 网络管理
     QNetworkAccessManager *networkManager;
     QNetworkReply *currentReply;
+    QNetworkReply *modelListReply;
 };
 
 #endif // AISUMMARYCONFIGDIALOG_H

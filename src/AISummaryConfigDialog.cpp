@@ -6,17 +6,19 @@ AISummaryConfigDialog::AISummaryConfigDialog(QWidget *parent)
     : QDialog(parent)
     , networkManager(new QNetworkAccessManager(this))
     , currentReply(nullptr)
+    , modelListReply(nullptr)
 {
     setWindowTitle("AI视频内容总结配置");
     setModal(true);
-    setMinimumSize(500, 400);
-    resize(600, 450);
+    setMinimumSize(500, 450);
+    resize(600, 500);
     
     setupUI();
     
     // 连接信号
     connect(providerCombo, QOverload<const QString &>::of(&QComboBox::currentTextChanged),
             this, &AISummaryConfigDialog::onProviderChanged);
+    connect(refreshModelsButton, &QPushButton::clicked, this, &AISummaryConfigDialog::onRefreshModelsClicked);
     connect(testButton, &QPushButton::clicked, this, &AISummaryConfigDialog::onTestConnection);
     connect(okButton, &QPushButton::clicked, this, &QDialog::accept);
     connect(cancelButton, &QPushButton::clicked, this, &QDialog::reject);
@@ -29,6 +31,10 @@ AISummaryConfigDialog::~AISummaryConfigDialog() {
     if (currentReply) {
         currentReply->abort();
         currentReply->deleteLater();
+    }
+    if (modelListReply) {
+        modelListReply->abort();
+        modelListReply->deleteLater();
     }
 }
 
@@ -72,9 +78,28 @@ void AISummaryConfigDialog::setupUI() {
     formLayout->addRow("API Key:", apiKeyEdit);
     
     // 模型名称
+    QHBoxLayout *modelLayout = new QHBoxLayout();
     modelCombo = new QComboBox();
     modelCombo->setEditable(true);
-    formLayout->addRow("模型名称:", modelCombo);
+    modelCombo->setMinimumWidth(200);
+    
+    refreshModelsButton = new QPushButton("刷新");
+    refreshModelsButton->setMaximumWidth(60);
+    refreshModelsButton->setStyleSheet(
+        "QPushButton { background-color: #6f42c1; color: white; border-radius: 3px; padding: 4px 8px; }"
+        "QPushButton:hover { background-color: #5a32a3; }"
+        "QPushButton:disabled { background-color: #6c757d; }"
+    );
+    refreshModelsButton->setToolTip("自动获取可用的视觉模型列表");
+    
+    modelLayout->addWidget(modelCombo);
+    modelLayout->addWidget(refreshModelsButton);
+    formLayout->addRow("模型名称:", modelLayout);
+    
+    // 模型状态标签
+    modelStatusLabel = new QLabel("点击'刷新'按钮获取可用模型列表");
+    modelStatusLabel->setStyleSheet("QLabel { color: #6c757d; font-size: 11px; }");
+    formLayout->addRow("", modelStatusLabel);
     
     mainLayout->addWidget(configGroup);
     
@@ -143,6 +168,12 @@ void AISummaryConfigDialog::onProviderChanged(const QString& provider) {
     // 清除状态
     statusLabel->setText("请配置模型参数后测试连接");
     statusLabel->setStyleSheet("QLabel { padding: 5px; }");
+    
+    modelStatusLabel->setText("点击'刷新'按钮获取可用模型列表");
+    modelStatusLabel->setStyleSheet("QLabel { color: #6c757d; font-size: 11px; }");
+    
+    // 启用刷新按钮（如果不是自定义提供商）
+    refreshModelsButton->setEnabled(provider != "自定义");
 }
 
 QString AISummaryConfigDialog::getDefaultBaseUrl(const QString& provider) const {
@@ -160,13 +191,13 @@ QString AISummaryConfigDialog::getDefaultBaseUrl(const QString& provider) const 
 
 QStringList AISummaryConfigDialog::getDefaultModels(const QString& provider) const {
     if (provider == "OpenAI") {
-        return {"gpt-4-vision-preview", "gpt-4o", "gpt-4o-mini"};
+        return {""};
     } else if (provider == "硅基流动 (SiliconFlow)") {
-        return {"OpenGVLab/InternVL2-26B", "OpenGVLab/InternVL2-Llama3-76B", "deepseek-ai/deepseek-vl-7b-chat"};
+        return {"deepseek-ai/deepseek-vl2", "Qwen/QVQ-72B-Preview", "Qwen/Qwen2.5-VL-72B-Instruct"};
     } else if (provider == "智谱AI (GLM)") {
-        return {"glm-4v-plus", "glm-4v", "glm-4v-flash"};
+        return {""};
     } else if (provider == "月之暗面 (Kimi)") {
-        return {"moonshot-v1-8k", "moonshot-v1-32k", "moonshot-v1-128k"};
+        return {""};
     }
     return {};
 }
@@ -220,7 +251,7 @@ void AISummaryConfigDialog::onTestConnection() {
             this, &AISummaryConfigDialog::onNetworkReplyFinished);
     
     // 设置超时
-    QTimer::singleShot(10000, this, [this]() {
+    QTimer::singleShot(30000, this, [this]() {
         if (currentReply && currentReply->isRunning()) {
             currentReply->abort();
         }
@@ -306,4 +337,199 @@ void AISummaryConfigDialog::setConfig(const AISummaryConfig& config) {
         statusLabel->setText("配置已加载，建议重新测试连接");
         statusLabel->setStyleSheet("QLabel { padding: 5px; color: #007bff; }");
     }
+}
+
+void AISummaryConfigDialog::onRefreshModelsClicked() {
+    QString provider = providerCombo->currentText();
+    QString baseUrl = baseUrlEdit->text().trimmed();
+    QString apiKey = apiKeyEdit->text().trimmed();
+    
+    if (baseUrl.isEmpty() || apiKey.isEmpty()) {
+        modelStatusLabel->setText("❌ 请先填写Base URL和API Key");
+        modelStatusLabel->setStyleSheet("QLabel { color: #dc3545; font-size: 11px; }");
+        return;
+    }
+    
+    fetchAvailableModels();
+}
+
+void AISummaryConfigDialog::fetchAvailableModels() {
+    QString provider = providerCombo->currentText();
+    QString baseUrl = baseUrlEdit->text().trimmed();
+    QString apiKey = apiKeyEdit->text().trimmed();
+    
+    if (baseUrl.isEmpty() || apiKey.isEmpty()) {
+        return;
+    }
+    
+    // 显示加载状态
+    refreshModelsButton->setEnabled(false);
+    modelStatusLabel->setText("🔄 正在获取模型列表...");
+    modelStatusLabel->setStyleSheet("QLabel { color: #007bff; font-size: 11px; }");
+    
+    // 创建请求
+    QNetworkRequest request;
+    QString url = baseUrl;
+    if (!url.endsWith("/")) {
+        url += "/";
+    }
+    url += "models";
+    
+    request.setUrl(QUrl(url));
+    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    request.setRawHeader("Authorization", QString("Bearer %1").arg(apiKey).toUtf8());
+    request.setRawHeader("User-Agent", "AIcp-VideoSummary/1.0");
+    
+    // 发送请求
+    if (modelListReply) {
+        modelListReply->abort();
+        modelListReply->deleteLater();
+    }
+    
+    modelListReply = networkManager->get(request);
+    connect(modelListReply, &QNetworkReply::finished, 
+            this, &AISummaryConfigDialog::onModelListReplyFinished);
+    
+    // 设置超时
+    QTimer::singleShot(30000, this, [this]() {
+        if (modelListReply && modelListReply->isRunning()) {
+            modelListReply->abort();
+        }
+    });
+}
+
+void AISummaryConfigDialog::onModelListReplyFinished() {
+    refreshModelsButton->setEnabled(true);
+    
+    if (!modelListReply) {
+        return;
+    }
+    
+    QNetworkReply::NetworkError error = modelListReply->error();
+    
+    if (error == QNetworkReply::NoError) {
+        QByteArray data = modelListReply->readAll();
+        parseModelListResponse(data);
+    } else {
+        QString errorMsg;
+        int httpStatus = modelListReply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        
+        if (httpStatus == 401) {
+            errorMsg = "❌ API Key无效";
+        } else if (httpStatus == 403) {
+            errorMsg = "❌ 访问被拒绝";
+        } else if (httpStatus == 404) {
+            errorMsg = "❌ API端点不存在";
+        } else {
+            errorMsg = "❌ 获取失败，使用默认模型";
+        }
+        
+        modelStatusLabel->setText(errorMsg);
+        modelStatusLabel->setStyleSheet("QLabel { color: #dc3545; font-size: 11px; }");
+        
+        // 恢复默认模型列表
+        QString provider = providerCombo->currentText();
+        modelCombo->clear();
+        modelCombo->addItems(getDefaultModels(provider));
+    }
+    
+    modelListReply->deleteLater();
+    modelListReply = nullptr;
+}
+
+void AISummaryConfigDialog::parseModelListResponse(const QByteArray& data) {
+    QJsonDocument doc = QJsonDocument::fromJson(data);
+    if (!doc.isObject()) {
+        modelStatusLabel->setText("❌ 响应格式错误");
+        modelStatusLabel->setStyleSheet("QLabel { color: #dc3545; font-size: 11px; }");
+        return;
+    }
+    
+    QJsonObject response = doc.object();
+    if (!response.contains("data") || !response["data"].isArray()) {
+        modelStatusLabel->setText("❌ 无法解析模型列表");
+        modelStatusLabel->setStyleSheet("QLabel { color: #dc3545; font-size: 11px; }");
+        return;
+    }
+    
+    QJsonArray models = response["data"].toArray();
+    QStringList visionModels;
+    QStringList allModels;
+    
+    // 保存当前选择的模型
+    QString currentModel = modelCombo->currentText();
+    
+    for (const QJsonValue& value : models) {
+        if (value.isObject()) {
+            QJsonObject model = value.toObject();
+            QString modelId = model["id"].toString();
+            
+            if (!modelId.isEmpty()) {
+                allModels.append(modelId);
+                
+                // 检查是否为视觉模型
+                if (isVisionModel(modelId)) {
+                    visionModels.append(modelId);
+                }
+            }
+        }
+    }
+    
+    // 更新模型下拉框
+    modelCombo->clear();
+    
+    if (!visionModels.isEmpty()) {
+        modelCombo->addItems(visionModels);
+        modelStatusLabel->setText(QString("✅ 已获取 %1 个视觉模型").arg(visionModels.size()));
+        modelStatusLabel->setStyleSheet("QLabel { color: #28a745; font-size: 11px; }");
+    } else {
+        // 如果没有找到视觉模型，显示所有模型但给出提示
+        modelCombo->addItems(allModels);
+        modelStatusLabel->setText(QString("⚠️ 已获取 %1 个模型（请确认支持视觉功能）").arg(allModels.size()));
+        modelStatusLabel->setStyleSheet("QLabel { color: #ffc107; font-size: 11px; }");
+    }
+    
+    // 尝试恢复之前选择的模型
+    if (!currentModel.isEmpty()) {
+        int index = modelCombo->findText(currentModel);
+        if (index >= 0) {
+            modelCombo->setCurrentIndex(index);
+        }
+    }
+}
+
+bool AISummaryConfigDialog::isVisionModel(const QString& modelName) const {
+    QString lower = modelName.toLower();
+    
+    // OpenAI视觉模型
+    if (lower.contains("gpt-4") && (lower.contains("vision") || lower.contains("4o"))) {
+        return true;
+    }
+    
+    // 硅基流动视觉模型
+    if (lower.contains("internvl") || lower.contains("deepseek-vl") || 
+        lower.contains("cogvlm") || lower.contains("qvq") ||
+        lower.contains("vl") || lower.contains("stepfun-ai/step3")) {
+        return true;
+    }
+    
+    // 智谱AI视觉模型
+    if (lower.contains("glm") && lower.contains("v")) {
+        return true;
+    }
+    
+    // 月之暗面（Kimi）暂时没有专门的视觉模型标识，大部分都支持
+    QString provider = providerCombo->currentText();
+    if (provider == "月之暗面 (Kimi)" && lower.contains("moonshot")) {
+        return true;
+    }
+    
+    // 其他常见视觉模型关键词
+    if (lower.contains("vision") || lower.contains("visual") || 
+        lower.contains("multimodal") || lower.contains("llava") ||
+        lower.contains("blip") || lower.contains("flamingo")) {
+        return true;
+    }
+    
+    return false;
 }

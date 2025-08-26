@@ -12,6 +12,7 @@
 #include <QDebug>
 #include <QMutexLocker>
 #include <QThread>
+#include <QRegularExpression>
 
 AIVisionAnalyzer::AIVisionAnalyzer(QObject *parent)
     : QObject(parent)
@@ -193,37 +194,61 @@ void AIVisionAnalyzer::onImageAnalysisReply() {
     
     if (error == QNetworkReply::NoError) {
         QByteArray data = currentReply->readAll();
-        QJsonDocument doc = QJsonDocument::fromJson(data);
         
-        if (doc.isObject()) {
-            QJsonObject response = doc.object();
+        // 添加调试信息，帮助诊断thinking模型的响应
+        qDebug() << "API响应数据大小:" << data.size() << "字节";
+        
+        if (data.isEmpty()) {
+            result.success = false;
+            result.errorMessage = "API返回空响应";
+            qDebug() << "API返回空响应";
+        } else {
+            QJsonParseError parseError;
+            QJsonDocument doc = QJsonDocument::fromJson(data, &parseError);
             
-            QString description;
-            if (config.provider == "OpenAI") {
-                description = parseOpenAIResponse(response);
-            } else if (config.provider == "硅基流动 (SiliconFlow)") {
-                description = parseSiliconFlowResponse(response);
-            } else if (config.provider == "智谱AI (GLM)") {
-                description = parseGLMResponse(response);
-            } else if (config.provider == "月之暗面 (Kimi)") {
-                description = parseKimiResponse(response);
-            } else {
-                description = parseOpenAIResponse(response);
-            }
-            
-            if (!description.isEmpty()) {
-                result.success = true;
-                result.description = description;
-                qDebug() << "图片分析成功:" << imagePath << " -> " << description.left(50) + "...";
+            if (parseError.error != QJsonParseError::NoError) {
+                result.success = false;
+                result.errorMessage = QString("JSON解析错误: %1").arg(parseError.errorString());
+                qDebug() << "JSON解析失败:" << parseError.errorString();
+                qDebug() << "响应数据前1000字符:" << data.left(1000);
+            } else if (doc.isObject()) {
+                QJsonObject response = doc.object();
+                
+                // 检查是否有错误信息
+                if (response.contains("error")) {
+                    QJsonObject errorObj = response["error"].toObject();
+                    result.success = false;
+                    result.errorMessage = QString("API错误: %1").arg(errorObj["message"].toString());
+                    qDebug() << "API返回错误:" << errorObj;
+                } else {
+                    QString description;
+                    if (config.provider == "OpenAI") {
+                        description = parseOpenAIResponse(response);
+                    } else if (config.provider == "硅基流动 (SiliconFlow)") {
+                        description = parseSiliconFlowResponse(response);
+                    } else if (config.provider == "智谱AI (GLM)") {
+                        description = parseGLMResponse(response);
+                    } else if (config.provider == "月之暗面 (Kimi)") {
+                        description = parseKimiResponse(response);
+                    } else {
+                        description = parseOpenAIResponse(response);
+                    }
+                    
+                    if (!description.isEmpty()) {
+                        result.success = true;
+                        result.description = description;
+                        qDebug() << "图片分析成功:" << imagePath << " -> " << description.left(50) + "...";
+                    } else {
+                        result.success = false;
+                        result.errorMessage = "API返回空描述";
+                        qDebug() << "API返回空描述，完整响应:" << response;
+                    }
+                }
             } else {
                 result.success = false;
-                result.errorMessage = "API返回空描述";
-                qDebug() << "API返回空描述:" << response;
+                result.errorMessage = "API返回格式错误";
+                qDebug() << "API返回格式错误，响应数据:" << data;
             }
-        } else {
-            result.success = false;
-            result.errorMessage = "API返回格式错误";
-            qDebug() << "API返回格式错误:" << data;
         }
     } else {
         result.success = false;
@@ -311,31 +336,51 @@ void AIVisionAnalyzer::onSummaryReply() {
     
     if (error == QNetworkReply::NoError) {
         QByteArray data = currentReply->readAll();
-        QJsonDocument doc = QJsonDocument::fromJson(data);
         
-        if (doc.isObject()) {
-            QJsonObject response = doc.object();
-            
-            QString summary;
-            if (config.provider == "OpenAI") {
-                summary = parseOpenAIResponse(response);
-            } else if (config.provider == "硅基流动 (SiliconFlow)") {
-                summary = parseSiliconFlowResponse(response);
-            } else if (config.provider == "智谱AI (GLM)") {
-                summary = parseGLMResponse(response);
-            } else if (config.provider == "月之暗面 (Kimi)") {
-                summary = parseKimiResponse(response);
-            } else {
-                summary = parseOpenAIResponse(response);
-            }
-            
-            if (!summary.isEmpty()) {
-                emit finalSummaryGenerated(true, summary, "视频内容总结生成成功");
-            } else {
-                emit finalSummaryGenerated(false, "", "API返回空总结");
-            }
+        qDebug() << "总结生成API响应数据大小:" << data.size() << "字节";
+        
+        if (data.isEmpty()) {
+            emit finalSummaryGenerated(false, "", "API返回空响应");
         } else {
-            emit finalSummaryGenerated(false, "", "API返回格式错误");
+            QJsonParseError parseError;
+            QJsonDocument doc = QJsonDocument::fromJson(data, &parseError);
+            
+            if (parseError.error != QJsonParseError::NoError) {
+                emit finalSummaryGenerated(false, "", QString("JSON解析错误: %1").arg(parseError.errorString()));
+                qDebug() << "总结生成JSON解析失败:" << parseError.errorString();
+            } else if (doc.isObject()) {
+                QJsonObject response = doc.object();
+                
+                // 检查是否有错误信息
+                if (response.contains("error")) {
+                    QJsonObject errorObj = response["error"].toObject();
+                    emit finalSummaryGenerated(false, "", QString("API错误: %1").arg(errorObj["message"].toString()));
+                    qDebug() << "总结生成API返回错误:" << errorObj;
+                } else {
+                    QString summary;
+                    if (config.provider == "OpenAI") {
+                        summary = parseOpenAIResponse(response);
+                    } else if (config.provider == "硅基流动 (SiliconFlow)") {
+                        summary = parseSiliconFlowResponse(response);
+                    } else if (config.provider == "智谱AI (GLM)") {
+                        summary = parseGLMResponse(response);
+                    } else if (config.provider == "月之暗面 (Kimi)") {
+                        summary = parseKimiResponse(response);
+                    } else {
+                        summary = parseOpenAIResponse(response);
+                    }
+                    
+                    if (!summary.isEmpty()) {
+                        emit finalSummaryGenerated(true, summary, "视频内容总结生成成功");
+                    } else {
+                        emit finalSummaryGenerated(false, "", "API返回空总结");
+                        qDebug() << "总结生成API返回空总结，完整响应:" << response;
+                    }
+                }
+            } else {
+                emit finalSummaryGenerated(false, "", "API返回格式错误");
+                qDebug() << "总结生成API返回格式错误，响应数据:" << data;
+            }
         }
     } else {
         emit finalSummaryGenerated(false, "", QString("总结生成失败: %1").arg(currentReply->errorString()));
@@ -346,23 +391,33 @@ void AIVisionAnalyzer::onSummaryReply() {
 }
 
 void AIVisionAnalyzer::onNetworkTimeout() {
+    qDebug() << "网络请求超时，正在处理...";
+    
     if (currentReply) {
+        QString imagePath = currentReply->property("imagePath").toString();
+        int frameIndex = currentReply->property("frameIndex").toInt();
+        
+        qDebug() << "超时的请求 - 图片:" << imagePath << "帧索引:" << frameIndex;
+        
+        // 安全地中止请求
         currentReply->abort();
         
         FrameAnalysisResult result;
-        result.imagePath = currentReply->property("imagePath").toString();
-        result.frameIndex = currentReply->property("frameIndex").toInt();
+        result.imagePath = imagePath;
+        result.frameIndex = frameIndex;
         result.success = false;
-        result.errorMessage = "请求超时";
+        result.errorMessage = "请求超时 - thinking模型可能需要更长时间，请考虑增加超时设置";
         
-        QMutexLocker locker(&resultsMutex);
-        analysisResults.append(result);
+        {
+            QMutexLocker locker(&resultsMutex);
+            analysisResults.append(result);
+        }
         
         currentReply->deleteLater();
         currentReply = nullptr;
     }
     
-    // 继续处理下一张图片
+    // 继续处理下一张图片，避免整个流程卡住
     QTimer::singleShot(1000, this, &AIVisionAnalyzer::processNextImage);
 }
 
@@ -385,10 +440,19 @@ QJsonObject AIVisionAnalyzer::createOpenAIRequest(const QString &base64Image) co
     
     QJsonArray content;
     
-    // 文本内容
+    // 文本内容 - 针对thinking模型优化
     QJsonObject textContent;
     textContent["type"] = "text";
-    textContent["text"] = "请详细描述这张图片中的内容，包括场景、物体、人物行为和任何重要细节。用中文回答。";
+    
+    // 检查是否是thinking模型，给出更直接的指令
+    QString prompt;
+    if (config.modelName.toLower().contains("thinking") || config.modelName.toLower().contains("o1")) {
+        prompt = "请直接描述这张图片中的内容，包括场景、物体、人物行为和重要细节。请用中文简洁回答，不需要思考过程。";
+    } else {
+        prompt = "请详细描述这张图片中的内容，包括场景、物体、人物行为和任何重要细节。用中文回答。";
+    }
+    
+    textContent["text"] = prompt;
     content.append(textContent);
     
     // 图片内容
@@ -473,7 +537,32 @@ QString AIVisionAnalyzer::parseOpenAIResponse(const QJsonObject &response) const
             QJsonObject choice = choices[0].toObject();
             if (choice.contains("message")) {
                 QJsonObject message = choice["message"].toObject();
-                return message["content"].toString().trimmed();
+                QString content = message["content"].toString().trimmed();
+                
+                // 对于thinking模型，可能包含思考过程和最终答案
+                // 尝试提取最终的描述内容
+                if (content.contains("<answer>") && content.contains("</answer>")) {
+                    // 提取<answer>标签内的内容
+                    int startPos = content.indexOf("<answer>") + 8;
+                    int endPos = content.indexOf("</answer>");
+                    if (endPos > startPos) {
+                        content = content.mid(startPos, endPos - startPos).trimmed();
+                    }
+                } else if (content.contains("答案:") || content.contains("答案：")) {
+                    // 寻找"答案:"后的内容
+                    QStringList lines = content.split('\n');
+                    for (int i = 0; i < lines.size(); i++) {
+                        if (lines[i].contains("答案:") || lines[i].contains("答案：")) {
+                            QStringList remainingLines = lines.mid(i);
+                            QString remaining = remainingLines.join('\n');
+                            QRegularExpression re("^.*答案[：:]\\s*");
+                            content = remaining.replace(re, "").trimmed();
+                            break;
+                        }
+                    }
+                }
+                
+                return content;
             }
         }
     }
