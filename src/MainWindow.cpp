@@ -31,7 +31,7 @@ MainWindow::MainWindow(QWidget *parent)
     , recordEndTime(0)
     , recordingDurationMs(0)
 {
-    setWindowTitle("延时录屏工具");
+    setWindowTitle("AICP");
     setMinimumSize(650, 450);
     resize(700, 500);
     
