@@ -7,7 +7,7 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 # 查找Qt6包
-find_package(Qt6 REQUIRED COMPONENTS Widgets Core)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Core Network)
 
 # 平台特定：仅在 macOS 查找系统框架
 if(APPLE)
@@ -27,6 +27,8 @@ set(SOURCES
     src/main.cpp
     src/MainWindow.cpp
     src/MainWindow.h
+    src/AISummaryConfigDialog.cpp
+    src/AISummaryConfigDialog.h
     include/SimpleCapture.h
     resources/resources.qrc
 )
@@ -55,6 +57,7 @@ target_link_libraries(AIcp
     PRIVATE
     Qt6::Widgets
     Qt6::Core
+    Qt6::Network
 )
 
 if(APPLE)

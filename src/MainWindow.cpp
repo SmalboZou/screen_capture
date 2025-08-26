@@ -22,6 +22,7 @@
 #include <QCoreApplication>
 #include <QApplication>
 #include <QIcon>
+#include <QTextEdit>
 #include <iostream>
 
 MainWindow::MainWindow(QWidget *parent)
@@ -42,9 +43,12 @@ MainWindow::MainWindow(QWidget *parent)
     }
     
     setupUI();
+    loadAISettings(); // 加载AI设置
 }
 
-MainWindow::~MainWindow() = default;
+MainWindow::~MainWindow() {
+    saveAISettings(); // 保存AI设置
+}
 
 void MainWindow::setupUI() {
     QWidget *centralWidget = new QWidget(this);
@@ -289,6 +293,58 @@ void MainWindow::setupUI() {
     statusLayout->addStretch();
     
     rightLayout->addWidget(statusGroup);
+    
+    // 视频内容总结组
+    QGroupBox *summaryGroup = new QGroupBox("视频内容总结");
+    summaryGroup->setStyleSheet("QGroupBox { font-weight: bold; padding-top: 15px; }");
+    QVBoxLayout *summaryLayout = new QVBoxLayout(summaryGroup);
+    
+    // 启用视频内容总结复选框
+    videoSummaryEnabledCheckBox = new QCheckBox("启用视频内容总结");
+    QIcon summaryIcon(":/icons/ai.png");
+    if (summaryIcon.isNull()) {
+        summaryIcon = style()->standardIcon(QStyle::SP_ComputerIcon);
+    }
+    videoSummaryEnabledCheckBox->setIcon(summaryIcon);
+    videoSummaryEnabledCheckBox->setToolTip("录制完成后自动分析视频内容并生成总结");
+    summaryLayout->addWidget(videoSummaryEnabledCheckBox);
+    
+    // AI模型配置按钮
+    QHBoxLayout *configButtonLayout = new QHBoxLayout();
+    summaryConfigButton = new QPushButton("配置AI模型");
+    summaryConfigButton->setEnabled(false); // 初始禁用
+    summaryConfigButton->setStyleSheet(
+        "QPushButton { background-color: #17a2b8; color: white; font-weight: bold; "
+        "padding: 6px 12px; border-radius: 4px; }"
+        "QPushButton:hover { background-color: #138496; }"
+        "QPushButton:disabled { background-color: #6c757d; }"
+    );
+    QIcon configIcon(":/icons/settings.png");
+    if (configIcon.isNull()) {
+        configIcon = style()->standardIcon(QStyle::SP_FileDialogDetailedView);
+    }
+    summaryConfigButton->setIcon(configIcon);
+    configButtonLayout->addWidget(summaryConfigButton);
+    configButtonLayout->addStretch();
+    summaryLayout->addLayout(configButtonLayout);
+    
+    // 总结内容显示文本框
+    QLabel *summaryLabel = new QLabel("总结内容:");
+    summaryLabel->setStyleSheet("font-weight: bold; margin-top: 10px;");
+    summaryLayout->addWidget(summaryLabel);
+    
+    videoSummaryTextEdit = new QTextEdit();
+    videoSummaryTextEdit->setPlaceholderText("视频内容总结将在录制完成后显示在这里...");
+    videoSummaryTextEdit->setMaximumHeight(120);
+    videoSummaryTextEdit->setEnabled(false); // 初始禁用
+    videoSummaryTextEdit->setStyleSheet(
+        "QTextEdit { background-color: #f8f9fa; border: 1px solid #dee2e6; "
+        "border-radius: 4px; padding: 8px; font-size: 13px; }"
+        "QTextEdit:disabled { background-color: #e9ecef; color: #6c757d; }"
+    );
+    summaryLayout->addWidget(videoSummaryTextEdit);
+    
+    rightLayout->addWidget(summaryGroup);
     rightLayout->addStretch();
     
     // 添加到分割器
@@ -306,6 +362,8 @@ void MainWindow::setupUI() {
     connect(browseButton, &QPushButton::clicked, this, &MainWindow::onBrowsePath);
     connect(timerEnabledCheckBox, &QCheckBox::toggled, this, &MainWindow::onTimerEnabledChanged);
     connect(autoMinimizeCheckBox, &QCheckBox::toggled, delaySecondsSpinBox, &QSpinBox::setEnabled);
+    connect(videoSummaryEnabledCheckBox, &QCheckBox::toggled, this, &MainWindow::onVideoSummaryEnabledChanged);
+    connect(summaryConfigButton, &QPushButton::clicked, this, &MainWindow::onSummaryConfigClicked);
     
     // 定时器
     updateTimer = new QTimer(this);
@@ -673,4 +731,80 @@ void MainWindow::setStatusText(const QString& text, const QString& color, const 
     ).arg(baseFontSize).arg(color).arg(borderColor).arg(textColor);
     
     statusLabel->setStyleSheet(styleSheet);
+}
+
+void MainWindow::onVideoSummaryEnabledChanged(bool enabled) {
+    summaryConfigButton->setEnabled(enabled);
+    videoSummaryTextEdit->setEnabled(enabled);
+    
+    if (enabled) {
+        videoSummaryTextEdit->setPlaceholderText("视频内容总结将在录制完成后显示在这里...");
+        
+        // 如果还没有配置AI模型，提示用户配置
+        if (!aiSummaryConfig.isValid()) {
+            videoSummaryTextEdit->setText("请先配置AI模型才能使用视频内容总结功能。");
+        }
+    } else {
+        videoSummaryTextEdit->clear();
+        videoSummaryTextEdit->setPlaceholderText("视频内容总结功能已禁用");
+    }
+}
+
+void MainWindow::onSummaryConfigClicked() {
+    if (!summaryConfigDialog) {
+        summaryConfigDialog = std::make_unique<AISummaryConfigDialog>(this);
+    }
+    
+    // 设置当前配置
+    summaryConfigDialog->setConfig(aiSummaryConfig);
+    
+    if (summaryConfigDialog->exec() == QDialog::Accepted) {
+        // 保存新配置
+        aiSummaryConfig = summaryConfigDialog->getConfig();
+        
+        // 更新UI状态
+        if (aiSummaryConfig.isValid()) {
+            videoSummaryTextEdit->setText(
+                QString("AI模型已配置：%1 - %2\n点击开始录制来测试视频内容总结功能。")
+                .arg(aiSummaryConfig.provider)
+                .arg(aiSummaryConfig.modelName)
+            );
+        } else {
+            videoSummaryTextEdit->setText("AI模型配置无效，请重新配置。");
+        }
+    }
+}
+
+void MainWindow::loadAISettings() {
+    QSettings settings("AIcp", "VideoSummary");
+    
+    // 加载AI配置
+    aiSummaryConfig.provider = settings.value("ai/provider", "").toString();
+    aiSummaryConfig.baseUrl = settings.value("ai/baseUrl", "").toString();
+    aiSummaryConfig.apiKey = settings.value("ai/apiKey", "").toString();
+    aiSummaryConfig.modelName = settings.value("ai/modelName", "").toString();
+    aiSummaryConfig.enabled = settings.value("ai/enabled", false).toBool();
+    
+    // 更新UI状态
+    if (aiSummaryConfig.enabled && aiSummaryConfig.isValid()) {
+        videoSummaryEnabledCheckBox->setChecked(true);
+        videoSummaryTextEdit->setText(
+            QString("AI模型已配置：%1 - %2\n准备开始录制并生成视频内容总结。")
+            .arg(aiSummaryConfig.provider)
+            .arg(aiSummaryConfig.modelName)
+        );
+    }
+}
+
+void MainWindow::saveAISettings() {
+    QSettings settings("AIcp", "VideoSummary");
+    
+    // 保存AI配置
+    settings.setValue("ai/provider", aiSummaryConfig.provider);
+    settings.setValue("ai/baseUrl", aiSummaryConfig.baseUrl);
+    settings.setValue("ai/apiKey", aiSummaryConfig.apiKey);
+    settings.setValue("ai/modelName", aiSummaryConfig.modelName);
+    settings.setValue("ai/enabled", videoSummaryEnabledCheckBox->isChecked());
+    
+    settings.sync();
 }
