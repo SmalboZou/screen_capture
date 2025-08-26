@@ -29,6 +29,12 @@ set(SOURCES
     src/MainWindow.h
     src/AISummaryConfigDialog.cpp
     src/AISummaryConfigDialog.h
+    src/VideoFrameExtractor.cpp
+    src/VideoFrameExtractor.h
+    src/AIVisionAnalyzer.cpp
+    src/AIVisionAnalyzer.h
+    src/VideoSummaryManager.cpp
+    src/VideoSummaryManager.h
     include/SimpleCapture.h
     resources/resources.qrc
 )

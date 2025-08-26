@@ -14,6 +14,7 @@
 #include <memory>
 #include "SimpleCapture.h"
 #include "AISummaryConfigDialog.h"
+#include "VideoSummaryManager.h"
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -31,6 +32,8 @@ private slots:
     void onTimedRecordingFinished();
     void onVideoSummaryEnabledChanged(bool enabled);
     void onSummaryConfigClicked();
+    void onVideoSummaryProgress(const QString &status, int percentage);
+    void onVideoSummaryCompleted(bool success, const QString &summary, const QString &message);
 
 private:
     void setupUI();
@@ -39,6 +42,7 @@ private:
     void setStatusText(const QString& text, const QString& color = "#fff3cd", const QString& borderColor = "#ffc107", const QString& textColor = "#856404");
     void loadAISettings();
     void saveAISettings();
+    void startVideoSummaryProcess(const QString& videoPath);
 
     QPushButton *startButton;
     QPushButton *stopButton;
@@ -74,6 +78,8 @@ private:
     // AI视频总结配置
     AISummaryConfig aiSummaryConfig;
     std::unique_ptr<AISummaryConfigDialog> summaryConfigDialog;
+    std::unique_ptr<VideoSummaryManager> videoSummaryManager;
+    QString lastRecordedVideoPath; // 保存最后录制的视频路径
 };
 
 #endif // MAINWINDOW_H

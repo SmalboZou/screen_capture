@@ -23,6 +23,7 @@
 #include <QApplication>
 #include <QIcon>
 #include <QTextEdit>
+#include <QRegularExpression>
 #include <iostream>
 
 MainWindow::MainWindow(QWidget *parent)
@@ -42,8 +43,17 @@ MainWindow::MainWindow(QWidget *parent)
         QMessageBox::critical(this, "错误", "视频捕获初始化失败");
     }
     
+    // 创建视频总结管理器
+    videoSummaryManager = std::make_unique<VideoSummaryManager>(this);
+    
     setupUI();
     loadAISettings(); // 加载AI设置
+    
+    // 连接视频总结信号
+    connect(videoSummaryManager.get(), &VideoSummaryManager::summaryProgress,
+            this, &MainWindow::onVideoSummaryProgress);
+    connect(videoSummaryManager.get(), &VideoSummaryManager::summaryCompleted,
+            this, &MainWindow::onVideoSummaryCompleted);
 }
 
 MainWindow::~MainWindow() {
@@ -394,11 +404,30 @@ void MainWindow::setupUI() {
             actualRecordingTime = recordingDurationMs > 0 ? recordingDurationMs : 0;
         }
         
+        // 构建完整的视频路径
+        QString outputDir = outputPathEdit->text();
+        QString fileName = outputNameEdit->text().trimmed();
+        if (fileName.isEmpty()) {
+            QString timestamp = QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss");
+            fileName = "AIcp_" + timestamp;
+        }
+        if (!fileName.endsWith(".mov", Qt::CaseInsensitive) && 
+            !fileName.endsWith(".mp4", Qt::CaseInsensitive)) {
+            fileName += ".mov";
+        }
+        QString fullVideoPath = outputDir + "/" + fileName;
+        lastRecordedVideoPath = fullVideoPath;
+        
         QString msg = QString("定时录制已完成！\n文件: %1\n实际录制时长: %2")
-            .arg(outputPathEdit->text())
+            .arg(fullVideoPath)
             .arg(formatDuration(actualRecordingTime));
         
         QMessageBox::information(this, "定时录制完成", msg);
+        
+        // 如果启用了视频内容总结，开始分析
+        if (videoSummaryEnabledCheckBox->isChecked() && aiSummaryConfig.isValid()) {
+            startVideoSummaryProcess(fullVideoPath);
+        }
         
         // 重置定时显示和时间记录
         timerRemainingLabel->setText("--:--:--");
@@ -557,11 +586,30 @@ void MainWindow::onStopRecording() {
     // 重置定时显示
     timerRemainingLabel->setText("--:--:--");
     
+    // 构建完整的视频路径
+    QString outputDir = outputPathEdit->text();
+    QString fileName = outputNameEdit->text().trimmed();
+    if (fileName.isEmpty()) {
+        QString timestamp = QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss");
+        fileName = "AIcp_" + timestamp;
+    }
+    if (!fileName.endsWith(".mov", Qt::CaseInsensitive) && 
+        !fileName.endsWith(".mp4", Qt::CaseInsensitive)) {
+        fileName += ".mov";
+    }
+    QString fullVideoPath = outputDir + "/" + fileName;
+    lastRecordedVideoPath = fullVideoPath;
+    
     QString msg = QString("录制完成！\n文件: %1\n时长: %2")
-        .arg(outputPathEdit->text())
+        .arg(fullVideoPath)
         .arg(formatDuration(duration));
     
     QMessageBox::information(this, "录制完成", msg);
+    
+    // 如果启用了视频内容总结，开始分析
+    if (videoSummaryEnabledCheckBox->isChecked() && aiSummaryConfig.isValid()) {
+        startVideoSummaryProcess(fullVideoPath);
+    }
     
     // 重置时间记录
     recordEndTime = 0;
@@ -762,6 +810,9 @@ void MainWindow::onSummaryConfigClicked() {
         // 保存新配置
         aiSummaryConfig = summaryConfigDialog->getConfig();
         
+        // 更新视频总结管理器的配置
+        videoSummaryManager->setConfig(aiSummaryConfig);
+        
         // 更新UI状态
         if (aiSummaryConfig.isValid()) {
             videoSummaryTextEdit->setText(
@@ -785,6 +836,11 @@ void MainWindow::loadAISettings() {
     aiSummaryConfig.modelName = settings.value("ai/modelName", "").toString();
     aiSummaryConfig.enabled = settings.value("ai/enabled", false).toBool();
     
+    // 设置视频总结管理器的配置
+    if (videoSummaryManager) {
+        videoSummaryManager->setConfig(aiSummaryConfig);
+    }
+    
     // 更新UI状态
     if (aiSummaryConfig.enabled && aiSummaryConfig.isValid()) {
         videoSummaryEnabledCheckBox->setChecked(true);
@@ -807,4 +863,58 @@ void MainWindow::saveAISettings() {
     settings.setValue("ai/enabled", videoSummaryEnabledCheckBox->isChecked());
     
     settings.sync();
+}
+
+void MainWindow::startVideoSummaryProcess(const QString& videoPath) {
+    if (!videoSummaryManager || videoSummaryManager->isProcessing()) {
+        return;
+    }
+    
+    // 获取录制时的帧率
+    int fps = fpsCombo->currentText().split(" ")[0].toInt();
+    
+    videoSummaryTextEdit->setText("正在启动视频内容分析...");
+    
+    // 开始视频总结处理
+    videoSummaryManager->startVideoSummary(videoPath, fps);
+}
+
+void MainWindow::onVideoSummaryProgress(const QString &status, int percentage) {
+    QString progressText = QString("%1 (%2%)").arg(status).arg(percentage);
+    videoSummaryTextEdit->setText(progressText);
+    
+    // 可以在这里添加进度条显示
+    qDebug() << "视频总结进度:" << progressText;
+}
+
+void MainWindow::onVideoSummaryCompleted(bool success, const QString &summary, const QString &message) {
+    if (success) {
+        // 显示总结结果
+        QString resultText = QString("✅ 视频内容总结:\n\n%1\n\n📊 %2").arg(summary).arg(message);
+        videoSummaryTextEdit->setText(resultText);
+        
+        // 可选：保存总结到文件
+        if (!lastRecordedVideoPath.isEmpty()) {
+            QString summaryPath = lastRecordedVideoPath;
+            summaryPath.replace(QRegularExpression("\\.(mov|mp4)$", QRegularExpression::CaseInsensitiveOption), "_summary.txt");
+            
+            QFile summaryFile(summaryPath);
+            if (summaryFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
+                QTextStream out(&summaryFile);
+                out << "视频文件: " << QFileInfo(lastRecordedVideoPath).fileName() << "\n";
+                out << "生成时间: " << QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss") << "\n";
+                out << "AI模型: " << aiSummaryConfig.provider << " - " << aiSummaryConfig.modelName << "\n\n";
+                out << "内容总结:\n" << summary << "\n\n";
+                out << "处理信息: " << message << "\n";
+            }
+        }
+        
+        qDebug() << "视频内容总结完成:" << message;
+    } else {
+        // 显示错误信息
+        QString errorText = QString("❌ 视频内容分析失败:\n%1").arg(message);
+        videoSummaryTextEdit->setText(errorText);
+        
+        qDebug() << "视频内容总结失败:" << message;
+    }
 }

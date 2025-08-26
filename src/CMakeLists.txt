@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.16)
 
 # 查找Qt6包
-find_package(Qt6 REQUIRED COMPONENTS Widgets Core)
+find_package(Qt6 REQUIRED COMPONENTS Widgets Core Network)
 
 # 查找macOS框架
 find_library(AVFOUNDATION_LIBRARY AVFoundation)
@@ -20,6 +20,14 @@ set(SOURCES
     MainWindow.cpp
     MainWindow.h
     SimpleCapture.mm
+    AISummaryConfigDialog.cpp
+    AISummaryConfigDialog.h
+    VideoFrameExtractor.cpp
+    VideoFrameExtractor.h
+    AIVisionAnalyzer.cpp
+    AIVisionAnalyzer.h
+    VideoSummaryManager.cpp
+    VideoSummaryManager.h
 )
 
 # 创建可执行文件
@@ -30,6 +38,7 @@ target_link_libraries(AIcp
     PRIVATE
     Qt6::Widgets
     Qt6::Core
+    Qt6::Network
     ${AVFOUNDATION_LIBRARY}
     ${COCOA_LIBRARY}
     ${QUARTZCORE_LIBRARY}
