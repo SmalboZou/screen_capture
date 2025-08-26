@@ -22,6 +22,8 @@
 #include <QCoreApplication>
 #include <QApplication>
 #include <QIcon>
+#include <QTextEdit>
+#include <QRegularExpression>
 #include <iostream>
 
 MainWindow::MainWindow(QWidget *parent)
@@ -31,7 +33,7 @@ MainWindow::MainWindow(QWidget *parent)
     , recordEndTime(0)
     , recordingDurationMs(0)
 {
-    setWindowTitle("延时录屏工具");
+    setWindowTitle("AICP");
     setMinimumSize(650, 450);
     resize(700, 500);
     
@@ -41,10 +43,22 @@ MainWindow::MainWindow(QWidget *parent)
         QMessageBox::critical(this, "错误", "视频捕获初始化失败");
     }
     
+    // 创建视频总结管理器
+    videoSummaryManager = std::make_unique<VideoSummaryManager>(this);
+    
     setupUI();
+    loadAISettings(); // 加载AI设置
+    
+    // 连接视频总结信号
+    connect(videoSummaryManager.get(), &VideoSummaryManager::summaryProgress,
+            this, &MainWindow::onVideoSummaryProgress);
+    connect(videoSummaryManager.get(), &VideoSummaryManager::summaryCompleted,
+            this, &MainWindow::onVideoSummaryCompleted);
 }
 
-MainWindow::~MainWindow() = default;
+MainWindow::~MainWindow() {
+    saveAISettings(); // 保存AI设置
+}
 
 void MainWindow::setupUI() {
     QWidget *centralWidget = new QWidget(this);
@@ -289,6 +303,59 @@ void MainWindow::setupUI() {
     statusLayout->addStretch();
     
     rightLayout->addWidget(statusGroup);
+    
+    // 视频内容总结组
+    QGroupBox *summaryGroup = new QGroupBox("视频内容总结");
+    summaryGroup->setStyleSheet("QGroupBox { font-weight: bold; padding-top: 15px; }");
+    QVBoxLayout *summaryLayout = new QVBoxLayout(summaryGroup);
+    
+    // 启用视频内容总结复选框
+    videoSummaryEnabledCheckBox = new QCheckBox("启用视频内容总结");
+    QIcon summaryIcon(":/icons/ai.png");
+    if (summaryIcon.isNull()) {
+        summaryIcon = style()->standardIcon(QStyle::SP_ComputerIcon);
+    }
+    videoSummaryEnabledCheckBox->setIcon(summaryIcon);
+    videoSummaryEnabledCheckBox->setToolTip("录制完成后自动分析视频内容并生成总结");
+    summaryLayout->addWidget(videoSummaryEnabledCheckBox);
+    
+    // AI模型配置按钮
+    QHBoxLayout *configButtonLayout = new QHBoxLayout();
+    summaryConfigButton = new QPushButton("配置AI模型");
+    summaryConfigButton->setEnabled(false); // 初始禁用
+    summaryConfigButton->setStyleSheet(
+        "QPushButton { background-color: #17a2b8; color: white; font-weight: bold; "
+        "padding: 6px 12px; border-radius: 4px; }"
+        "QPushButton:hover { background-color: #138496; }"
+        "QPushButton:disabled { background-color: #6c757d; }"
+    );
+    QIcon configIcon(":/icons/settings.png");
+    if (configIcon.isNull()) {
+        configIcon = style()->standardIcon(QStyle::SP_FileDialogDetailedView);
+    }
+    summaryConfigButton->setIcon(configIcon);
+    configButtonLayout->addWidget(summaryConfigButton);
+    configButtonLayout->addStretch();
+    summaryLayout->addLayout(configButtonLayout);
+    
+    // 总结内容显示文本框
+    QLabel *summaryLabel = new QLabel("总结内容:");
+    summaryLabel->setStyleSheet("font-weight: bold; margin-top: 10px;");
+    summaryLayout->addWidget(summaryLabel);
+    
+    videoSummaryTextEdit = new QTextEdit();
+    videoSummaryTextEdit->setPlaceholderText("视频内容总结将在录制完成后显示在这里...");
+    videoSummaryTextEdit->setMaximumHeight(120);
+    videoSummaryTextEdit->setReadOnly(true); // 设置为只读
+    videoSummaryTextEdit->setEnabled(false); // 初始禁用
+    videoSummaryTextEdit->setStyleSheet(
+        "QTextEdit { background-color: #f8f9fa; border: 1px solid #dee2e6; "
+        "border-radius: 4px; padding: 8px; font-size: 13px; }"
+        "QTextEdit:disabled { background-color: #e9ecef; color: #6c757d; }"
+    );
+    summaryLayout->addWidget(videoSummaryTextEdit);
+    
+    rightLayout->addWidget(summaryGroup);
     rightLayout->addStretch();
     
     // 添加到分割器
@@ -306,6 +373,8 @@ void MainWindow::setupUI() {
     connect(browseButton, &QPushButton::clicked, this, &MainWindow::onBrowsePath);
     connect(timerEnabledCheckBox, &QCheckBox::toggled, this, &MainWindow::onTimerEnabledChanged);
     connect(autoMinimizeCheckBox, &QCheckBox::toggled, delaySecondsSpinBox, &QSpinBox::setEnabled);
+    connect(videoSummaryEnabledCheckBox, &QCheckBox::toggled, this, &MainWindow::onVideoSummaryEnabledChanged);
+    connect(summaryConfigButton, &QPushButton::clicked, this, &MainWindow::onSummaryConfigClicked);
     
     // 定时器
     updateTimer = new QTimer(this);
@@ -336,11 +405,30 @@ void MainWindow::setupUI() {
             actualRecordingTime = recordingDurationMs > 0 ? recordingDurationMs : 0;
         }
         
+        // 构建完整的视频路径
+        QString outputDir = outputPathEdit->text();
+        QString fileName = outputNameEdit->text().trimmed();
+        if (fileName.isEmpty()) {
+            QString timestamp = QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss");
+            fileName = "AIcp_" + timestamp;
+        }
+        if (!fileName.endsWith(".mov", Qt::CaseInsensitive) && 
+            !fileName.endsWith(".mp4", Qt::CaseInsensitive)) {
+            fileName += ".mov";
+        }
+        QString fullVideoPath = outputDir + "/" + fileName;
+        lastRecordedVideoPath = fullVideoPath;
+        
         QString msg = QString("定时录制已完成！\n文件: %1\n实际录制时长: %2")
-            .arg(outputPathEdit->text())
+            .arg(fullVideoPath)
             .arg(formatDuration(actualRecordingTime));
         
         QMessageBox::information(this, "定时录制完成", msg);
+        
+        // 如果启用了视频内容总结，开始分析
+        if (videoSummaryEnabledCheckBox->isChecked() && aiSummaryConfig.isValid()) {
+            startVideoSummaryProcess(fullVideoPath);
+        }
         
         // 重置定时显示和时间记录
         timerRemainingLabel->setText("--:--:--");
@@ -499,11 +587,30 @@ void MainWindow::onStopRecording() {
     // 重置定时显示
     timerRemainingLabel->setText("--:--:--");
     
+    // 构建完整的视频路径
+    QString outputDir = outputPathEdit->text();
+    QString fileName = outputNameEdit->text().trimmed();
+    if (fileName.isEmpty()) {
+        QString timestamp = QDateTime::currentDateTime().toString("yyyyMMdd_HHmmss");
+        fileName = "AIcp_" + timestamp;
+    }
+    if (!fileName.endsWith(".mov", Qt::CaseInsensitive) && 
+        !fileName.endsWith(".mp4", Qt::CaseInsensitive)) {
+        fileName += ".mov";
+    }
+    QString fullVideoPath = outputDir + "/" + fileName;
+    lastRecordedVideoPath = fullVideoPath;
+    
     QString msg = QString("录制完成！\n文件: %1\n时长: %2")
-        .arg(outputPathEdit->text())
+        .arg(fullVideoPath)
         .arg(formatDuration(duration));
     
     QMessageBox::information(this, "录制完成", msg);
+    
+    // 如果启用了视频内容总结，开始分析
+    if (videoSummaryEnabledCheckBox->isChecked() && aiSummaryConfig.isValid()) {
+        startVideoSummaryProcess(fullVideoPath);
+    }
     
     // 重置时间记录
     recordEndTime = 0;
@@ -673,4 +780,140 @@ void MainWindow::setStatusText(const QString& text, const QString& color, const 
     ).arg(baseFontSize).arg(color).arg(borderColor).arg(textColor);
     
     statusLabel->setStyleSheet(styleSheet);
+}
+
+void MainWindow::onVideoSummaryEnabledChanged(bool enabled) {
+    summaryConfigButton->setEnabled(enabled);
+    videoSummaryTextEdit->setEnabled(enabled);
+    
+    if (enabled) {
+        videoSummaryTextEdit->setPlaceholderText("视频内容总结将在录制完成后显示在这里...");
+        
+        // 如果还没有配置AI模型，提示用户配置
+        if (!aiSummaryConfig.isValid()) {
+            videoSummaryTextEdit->setMarkdown("### ⚠️ 提示\n\n请先配置AI模型才能使用视频内容总结功能。");
+        }
+    } else {
+        videoSummaryTextEdit->clear();
+        videoSummaryTextEdit->setPlaceholderText("视频内容总结功能已禁用");
+    }
+}
+
+void MainWindow::onSummaryConfigClicked() {
+    if (!summaryConfigDialog) {
+        summaryConfigDialog = std::make_unique<AISummaryConfigDialog>(this);
+    }
+    
+    // 设置当前配置
+    summaryConfigDialog->setConfig(aiSummaryConfig);
+    
+    if (summaryConfigDialog->exec() == QDialog::Accepted) {
+        // 保存新配置
+        aiSummaryConfig = summaryConfigDialog->getConfig();
+        
+        // 更新视频总结管理器的配置
+        videoSummaryManager->setConfig(aiSummaryConfig);
+        
+        // 更新UI状态
+        if (aiSummaryConfig.isValid()) {
+            QString configMarkdown = QString("### ✅ AI模型已配置\n\n**提供商：** %1\n\n**模型：** %2\n\n点击开始录制来测试视频内容总结功能。")
+                .arg(aiSummaryConfig.provider)
+                .arg(aiSummaryConfig.modelName);
+            videoSummaryTextEdit->setMarkdown(configMarkdown);
+        } else {
+            videoSummaryTextEdit->setMarkdown("### ❌ 配置错误\n\nAI模型配置无效，请重新配置。");
+        }
+    }
+}
+
+void MainWindow::loadAISettings() {
+    QSettings settings("AIcp", "VideoSummary");
+    
+    // 加载AI配置
+    aiSummaryConfig.provider = settings.value("ai/provider", "").toString();
+    aiSummaryConfig.baseUrl = settings.value("ai/baseUrl", "").toString();
+    aiSummaryConfig.apiKey = settings.value("ai/apiKey", "").toString();
+    aiSummaryConfig.modelName = settings.value("ai/modelName", "").toString();
+    aiSummaryConfig.enabled = settings.value("ai/enabled", false).toBool();
+    
+    // 设置视频总结管理器的配置
+    if (videoSummaryManager) {
+        videoSummaryManager->setConfig(aiSummaryConfig);
+    }
+    
+    // 更新UI状态
+    if (aiSummaryConfig.enabled && aiSummaryConfig.isValid()) {
+        videoSummaryEnabledCheckBox->setChecked(true);
+        QString configMarkdown = QString("### ✅ AI模型已就绪\n\n**提供商：** %1\n\n**模型：** %2\n\n准备开始录制并生成视频内容总结。")
+            .arg(aiSummaryConfig.provider)
+            .arg(aiSummaryConfig.modelName);
+        videoSummaryTextEdit->setMarkdown(configMarkdown);
+    }
+}
+
+void MainWindow::saveAISettings() {
+    QSettings settings("AIcp", "VideoSummary");
+    
+    // 保存AI配置
+    settings.setValue("ai/provider", aiSummaryConfig.provider);
+    settings.setValue("ai/baseUrl", aiSummaryConfig.baseUrl);
+    settings.setValue("ai/apiKey", aiSummaryConfig.apiKey);
+    settings.setValue("ai/modelName", aiSummaryConfig.modelName);
+    settings.setValue("ai/enabled", videoSummaryEnabledCheckBox->isChecked());
+    
+    settings.sync();
+}
+
+void MainWindow::startVideoSummaryProcess(const QString& videoPath) {
+    if (!videoSummaryManager || videoSummaryManager->isProcessing()) {
+        return;
+    }
+    
+    // 获取录制时的帧率
+    int fps = fpsCombo->currentText().split(" ")[0].toInt();
+    
+    videoSummaryTextEdit->setMarkdown("### 🔄 处理中\n\n正在启动视频内容分析...");
+    
+    // 开始视频总结处理
+    videoSummaryManager->startVideoSummary(videoPath, fps);
+}
+
+void MainWindow::onVideoSummaryProgress(const QString &status, int percentage) {
+    QString progressMarkdown = QString("### 🔄 处理进度\n\n**状态：** %1\n\n**进度：** %2%").arg(status).arg(percentage);
+    videoSummaryTextEdit->setMarkdown(progressMarkdown);
+    
+    // 可以在这里添加进度条显示
+    qDebug() << "视频总结进度:" << QString("%1 (%2%)").arg(status).arg(percentage);
+}
+
+void MainWindow::onVideoSummaryCompleted(bool success, const QString &summary, const QString &message) {
+    if (success) {
+        // 显示总结结果，使用Markdown格式
+        QString resultMarkdown = QString("## ✅ 视频内容总结\n\n%1\n\n---\n\n**📊 %2**").arg(summary).arg(message);
+        videoSummaryTextEdit->setMarkdown(resultMarkdown);
+        
+        // 可选：保存总结到文件
+        if (!lastRecordedVideoPath.isEmpty()) {
+            QString summaryPath = lastRecordedVideoPath;
+            summaryPath.replace(QRegularExpression("\\.(mov|mp4)$", QRegularExpression::CaseInsensitiveOption), "_summary.txt");
+            
+            QFile summaryFile(summaryPath);
+            if (summaryFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
+                QTextStream out(&summaryFile);
+                out << "视频文件: " << QFileInfo(lastRecordedVideoPath).fileName() << "\n";
+                out << "生成时间: " << QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss") << "\n";
+                out << "AI模型: " << aiSummaryConfig.provider << " - " << aiSummaryConfig.modelName << "\n\n";
+                out << "内容总结:\n" << summary << "\n\n";
+                out << "处理信息: " << message << "\n";
+            }
+        }
+        
+        qDebug() << "视频内容总结完成:" << message;
+    } else {
+        // 显示错误信息，使用Markdown格式
+        QString errorMarkdown = QString("## ❌ 视频内容分析失败\n\n%1").arg(message);
+        videoSummaryTextEdit->setMarkdown(errorMarkdown);
+        
+        qDebug() << "视频内容总结失败:" << message;
+    }
 }

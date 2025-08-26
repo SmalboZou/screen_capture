@@ -8,7 +8,7 @@ build-*/
 CMakeFiles/
 cmake_install.cmake
 CMakeCache.txt
-
+Release/
 # Generated Visual Studio files
 *.sln
 *.vcxproj
@@ -44,6 +44,8 @@ package/
 *.zip
 *.tar.gz
 *.7z
+*.tlog
+
 
 # Platform specific
 # Windows
