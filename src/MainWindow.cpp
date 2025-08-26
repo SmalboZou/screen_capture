@@ -346,6 +346,7 @@ void MainWindow::setupUI() {
     videoSummaryTextEdit = new QTextEdit();
     videoSummaryTextEdit->setPlaceholderText("视频内容总结将在录制完成后显示在这里...");
     videoSummaryTextEdit->setMaximumHeight(120);
+    videoSummaryTextEdit->setReadOnly(true); // 设置为只读
     videoSummaryTextEdit->setEnabled(false); // 初始禁用
     videoSummaryTextEdit->setStyleSheet(
         "QTextEdit { background-color: #f8f9fa; border: 1px solid #dee2e6; "
@@ -790,7 +791,7 @@ void MainWindow::onVideoSummaryEnabledChanged(bool enabled) {
         
         // 如果还没有配置AI模型，提示用户配置
         if (!aiSummaryConfig.isValid()) {
-            videoSummaryTextEdit->setText("请先配置AI模型才能使用视频内容总结功能。");
+            videoSummaryTextEdit->setMarkdown("### ⚠️ 提示\n\n请先配置AI模型才能使用视频内容总结功能。");
         }
     } else {
         videoSummaryTextEdit->clear();
@@ -815,13 +816,12 @@ void MainWindow::onSummaryConfigClicked() {
         
         // 更新UI状态
         if (aiSummaryConfig.isValid()) {
-            videoSummaryTextEdit->setText(
-                QString("AI模型已配置：%1 - %2\n点击开始录制来测试视频内容总结功能。")
+            QString configMarkdown = QString("### ✅ AI模型已配置\n\n**提供商：** %1\n\n**模型：** %2\n\n点击开始录制来测试视频内容总结功能。")
                 .arg(aiSummaryConfig.provider)
-                .arg(aiSummaryConfig.modelName)
-            );
+                .arg(aiSummaryConfig.modelName);
+            videoSummaryTextEdit->setMarkdown(configMarkdown);
         } else {
-            videoSummaryTextEdit->setText("AI模型配置无效，请重新配置。");
+            videoSummaryTextEdit->setMarkdown("### ❌ 配置错误\n\nAI模型配置无效，请重新配置。");
         }
     }
 }
@@ -844,11 +844,10 @@ void MainWindow::loadAISettings() {
     // 更新UI状态
     if (aiSummaryConfig.enabled && aiSummaryConfig.isValid()) {
         videoSummaryEnabledCheckBox->setChecked(true);
-        videoSummaryTextEdit->setText(
-            QString("AI模型已配置：%1 - %2\n准备开始录制并生成视频内容总结。")
+        QString configMarkdown = QString("### ✅ AI模型已就绪\n\n**提供商：** %1\n\n**模型：** %2\n\n准备开始录制并生成视频内容总结。")
             .arg(aiSummaryConfig.provider)
-            .arg(aiSummaryConfig.modelName)
-        );
+            .arg(aiSummaryConfig.modelName);
+        videoSummaryTextEdit->setMarkdown(configMarkdown);
     }
 }
 
@@ -873,25 +872,25 @@ void MainWindow::startVideoSummaryProcess(const QString& videoPath) {
     // 获取录制时的帧率
     int fps = fpsCombo->currentText().split(" ")[0].toInt();
     
-    videoSummaryTextEdit->setText("正在启动视频内容分析...");
+    videoSummaryTextEdit->setMarkdown("### 🔄 处理中\n\n正在启动视频内容分析...");
     
     // 开始视频总结处理
     videoSummaryManager->startVideoSummary(videoPath, fps);
 }
 
 void MainWindow::onVideoSummaryProgress(const QString &status, int percentage) {
-    QString progressText = QString("%1 (%2%)").arg(status).arg(percentage);
-    videoSummaryTextEdit->setText(progressText);
+    QString progressMarkdown = QString("### 🔄 处理进度\n\n**状态：** %1\n\n**进度：** %2%").arg(status).arg(percentage);
+    videoSummaryTextEdit->setMarkdown(progressMarkdown);
     
     // 可以在这里添加进度条显示
-    qDebug() << "视频总结进度:" << progressText;
+    qDebug() << "视频总结进度:" << QString("%1 (%2%)").arg(status).arg(percentage);
 }
 
 void MainWindow::onVideoSummaryCompleted(bool success, const QString &summary, const QString &message) {
     if (success) {
-        // 显示总结结果
-        QString resultText = QString("✅ 视频内容总结:\n\n%1\n\n📊 %2").arg(summary).arg(message);
-        videoSummaryTextEdit->setText(resultText);
+        // 显示总结结果，使用Markdown格式
+        QString resultMarkdown = QString("## ✅ 视频内容总结\n\n%1\n\n---\n\n**📊 %2**").arg(summary).arg(message);
+        videoSummaryTextEdit->setMarkdown(resultMarkdown);
         
         // 可选：保存总结到文件
         if (!lastRecordedVideoPath.isEmpty()) {
@@ -911,9 +910,9 @@ void MainWindow::onVideoSummaryCompleted(bool success, const QString &summary, c
         
         qDebug() << "视频内容总结完成:" << message;
     } else {
-        // 显示错误信息
-        QString errorText = QString("❌ 视频内容分析失败:\n%1").arg(message);
-        videoSummaryTextEdit->setText(errorText);
+        // 显示错误信息，使用Markdown格式
+        QString errorMarkdown = QString("## ❌ 视频内容分析失败\n\n%1").arg(message);
+        videoSummaryTextEdit->setMarkdown(errorMarkdown);
         
         qDebug() << "视频内容总结失败:" << message;
     }
