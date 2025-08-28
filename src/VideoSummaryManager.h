@@ -41,6 +41,8 @@ private slots:
 private:
     void updateProgress(const QString &status, int percentage);
     void finishWithError(const QString &message);
+    double calculateSmartInterval(const QString &videoPath);
+    QString findFFmpegPath() const;
     
     std::unique_ptr<VideoFrameExtractor> frameExtractor;
     std::unique_ptr<AIVisionAnalyzer> visionAnalyzer;

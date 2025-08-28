@@ -35,6 +35,12 @@ set(SOURCES
     src/AIVisionAnalyzer.h
     src/VideoSummaryManager.cpp
     src/VideoSummaryManager.h
+    src/RealTimeFrameExtractor.cpp
+    src/RealTimeFrameExtractor.h
+    src/RealTimeAIVisionAnalyzer.cpp
+    src/RealTimeAIVisionAnalyzer.h
+    src/RealTimeVideoSummaryManager.cpp
+    src/RealTimeVideoSummaryManager.h
     include/SimpleCapture.h
     resources/resources.qrc
 )

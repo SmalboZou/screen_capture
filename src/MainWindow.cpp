@@ -45,14 +45,23 @@ MainWindow::MainWindow(QWidget *parent)
     
     // 创建视频总结管理器
     videoSummaryManager = std::make_unique<VideoSummaryManager>(this);
+    realTimeVideoSummaryManager = std::make_unique<RealTimeVideoSummaryManager>(this);
     
     setupUI();
     loadAISettings(); // 加载AI设置
     
-    // 连接视频总结信号
+    // 连接视频总结信号（录制后分析）
     connect(videoSummaryManager.get(), &VideoSummaryManager::summaryProgress,
             this, &MainWindow::onVideoSummaryProgress);
     connect(videoSummaryManager.get(), &VideoSummaryManager::summaryCompleted,
+            this, &MainWindow::onVideoSummaryCompleted);
+    
+    // 连接实时视频总结信号
+    connect(realTimeVideoSummaryManager.get(), &RealTimeVideoSummaryManager::realTimeFrameAnalyzed,
+            this, &MainWindow::onRealTimeFrameAnalyzed);
+    connect(realTimeVideoSummaryManager.get(), &RealTimeVideoSummaryManager::summaryProgress,
+            this, &MainWindow::onVideoSummaryProgress);
+    connect(realTimeVideoSummaryManager.get(), &RealTimeVideoSummaryManager::summaryCompleted,
             this, &MainWindow::onVideoSummaryCompleted);
 }
 
@@ -316,7 +325,7 @@ void MainWindow::setupUI() {
         summaryIcon = style()->standardIcon(QStyle::SP_ComputerIcon);
     }
     videoSummaryEnabledCheckBox->setIcon(summaryIcon);
-    videoSummaryEnabledCheckBox->setToolTip("录制完成后自动分析视频内容并生成总结");
+    videoSummaryEnabledCheckBox->setToolTip("录制时进行实时分析，并在录制完成后生成总结\n智能间隔：录制时长>=10s时每10s提取一帧，否则每2.0s提取一帧");
     summaryLayout->addWidget(videoSummaryEnabledCheckBox);
     
     // AI模型配置按钮
@@ -483,6 +492,9 @@ void MainWindow::onStartRecording() {
         
         videoCapture->setCaptureRegion(physicalX, physicalY, physicalWidth, physicalHeight);
         
+        // 同时为实时视频总结管理器设置相同的捕获区域
+        realTimeVideoSummaryManager->setCaptureRegion(physicalX, physicalY, physicalWidth, physicalHeight);
+        
         std::cout << "设置录制区域: " << physicalWidth << "x" << physicalHeight 
                   << " (逻辑: " << g.width() << "x" << g.height() 
                   << ", 缩放: " << devicePixelRatio << ")" << std::endl;
@@ -604,15 +616,16 @@ void MainWindow::onStopRecording() {
     QString msg = QString("录制完成！\n文件: %1\n时长: %2")
         .arg(fullVideoPath)
         .arg(formatDuration(duration));
-    
+
     QMessageBox::information(this, "录制完成", msg);
-    
-    // 如果启用了视频内容总结，开始分析
-    if (videoSummaryEnabledCheckBox->isChecked() && aiSummaryConfig.isValid()) {
-        startVideoSummaryProcess(fullVideoPath);
-    }
-    
-    // 重置时间记录
+
+    // 如果启用了视频内容总结，停止实时分析并生成最终总结
+    if (videoSummaryEnabledCheckBox->isChecked() && aiSummaryConfig.isValid() && 
+        realTimeVideoSummaryManager->isRealTimeAnalyzing()) {
+        // 显示总结进行中的提示
+        videoSummaryTextEdit->setMarkdown("### 🔄 视频内容总结中...\n\n录制已完成，正在生成视频内容总结，请稍候...\n\n这可能需要几分钟时间，取决于视频长度和AI模型响应速度。");
+        realTimeVideoSummaryManager->stopRecording();
+    }    // 重置时间记录
     recordEndTime = 0;
 }
 
@@ -634,6 +647,12 @@ void MainWindow::startRecordingInternal(const QString& outputPath, const QString
         outputPathEdit->setText(outputDir);
         
         updateTimer->start(1000);
+        
+        // 如果启用了视频内容总结，开始实时分析
+        if (videoSummaryEnabledCheckBox->isChecked() && aiSummaryConfig.isValid()) {
+            realTimeVideoSummaryManager->startRecording(outputPath);
+            videoSummaryTextEdit->setMarkdown("### 🔄 实时总结中...\n\n正在录制并分析屏幕内容，录制完成后将生成完整总结。");
+        }
     } else {
         // 如果录制失败，恢复窗口和按钮状态
         startButton->setEnabled(true);
@@ -813,6 +832,7 @@ void MainWindow::onSummaryConfigClicked() {
         
         // 更新视频总结管理器的配置
         videoSummaryManager->setConfig(aiSummaryConfig);
+        realTimeVideoSummaryManager->setConfig(aiSummaryConfig);
         
         // 更新UI状态
         if (aiSummaryConfig.isValid()) {
@@ -839,6 +859,9 @@ void MainWindow::loadAISettings() {
     // 设置视频总结管理器的配置
     if (videoSummaryManager) {
         videoSummaryManager->setConfig(aiSummaryConfig);
+    }
+    if (realTimeVideoSummaryManager) {
+        realTimeVideoSummaryManager->setConfig(aiSummaryConfig);
     }
     
     // 更新UI状态
@@ -879,22 +902,23 @@ void MainWindow::startVideoSummaryProcess(const QString& videoPath) {
 }
 
 void MainWindow::onVideoSummaryProgress(const QString &status, int percentage) {
-    QString progressMarkdown = QString("### 🔄 处理进度\n\n**状态：** %1\n\n**进度：** %2%").arg(status).arg(percentage);
+    // 不显示进度百分比，只显示状态
+    QString progressMarkdown = QString("### 🔄 视频内容总结中...\n\n**状态：** %1\n\n请稍候，AI正在分析视频内容并生成总结...").arg(status);
     videoSummaryTextEdit->setMarkdown(progressMarkdown);
     
-    // 可以在这里添加进度条显示
-    qDebug() << "视频总结进度:" << QString("%1 (%2%)").arg(status).arg(percentage);
+    qDebug() << "视频总结状态:" << status;
 }
 
 void MainWindow::onVideoSummaryCompleted(bool success, const QString &summary, const QString &message) {
     if (success) {
         // 显示总结结果，使用Markdown格式
-        QString resultMarkdown = QString("## ✅ 视频内容总结\n\n%1\n\n---\n\n**📊 %2**").arg(summary).arg(message);
+        QString resultMarkdown = QString("## ✅ 视频内容总结\n\n%1").arg(summary);
         videoSummaryTextEdit->setMarkdown(resultMarkdown);
         
-        // 可选：保存总结到文件
+        // 保存总结到文件
+        QString summaryPath;
         if (!lastRecordedVideoPath.isEmpty()) {
-            QString summaryPath = lastRecordedVideoPath;
+            summaryPath = lastRecordedVideoPath;
             summaryPath.replace(QRegularExpression("\\.(mov|mp4)$", QRegularExpression::CaseInsensitiveOption), "_summary.txt");
             
             QFile summaryFile(summaryPath);
@@ -905,10 +929,25 @@ void MainWindow::onVideoSummaryCompleted(bool success, const QString &summary, c
                 out << "AI模型: " << aiSummaryConfig.provider << " - " << aiSummaryConfig.modelName << "\n\n";
                 out << "内容总结:\n" << summary << "\n\n";
                 out << "处理信息: " << message << "\n";
+                
+                // 弹窗告知用户保存位置
+                QMessageBox::information(this, "总结完成", 
+                    QString("✅ 视频内容总结已生成完成！\n\n📁 总结文件已保存至：\n%1\n\n您可以在视频总结面板查看详细内容。").arg(summaryPath));
+            } else {
+                // 如果文件保存失败，仍然显示总结内容
+                QMessageBox::information(this, "总结完成", 
+                    QString("✅ 视频内容总结已生成完成！\n\n总结内容已显示在视频总结面板中。\n\n注：总结文件保存失败，请检查文件权限。"));
             }
+        } else {
+            // 没有视频路径信息
+            QMessageBox::information(this, "总结完成", 
+                QString("✅ 视频内容总结已生成完成！\n\n总结内容已显示在视频总结面板中。"));
         }
         
         qDebug() << "视频内容总结完成:" << message;
+        if (!summaryPath.isEmpty()) {
+            qDebug() << "总结文件保存至:" << summaryPath;
+        }
     } else {
         // 显示错误信息，使用Markdown格式
         QString errorMarkdown = QString("## ❌ 视频内容分析失败\n\n%1").arg(message);
@@ -916,4 +955,32 @@ void MainWindow::onVideoSummaryCompleted(bool success, const QString &summary, c
         
         qDebug() << "视频内容总结失败:" << message;
     }
+}
+
+void MainWindow::onRealTimeFrameAnalyzed(const QString &analysis, double timestamp) {
+    // 处理实时帧分析结果
+    QString timeStr = QString::number(timestamp, 'f', 1) + "s";
+    QString shortAnalysis = analysis.left(100) + (analysis.length() > 100 ? "..." : "");
+    
+    qDebug() << QString("实时分析 [%1]: %2").arg(timeStr).arg(shortAnalysis);
+    
+    // 更新UI显示实时分析结果
+    QString currentContent = videoSummaryTextEdit->toMarkdown();
+    
+    // 如果是第一个分析结果，重新设置标题
+    if (!currentContent.contains("### 📋 当前内容分析")) {
+        videoSummaryTextEdit->setMarkdown("### 🔄 实时总结中...\n\n正在录制并分析屏幕内容...\n\n"
+                                         "### 📋 当前内容分析\n\n");
+    }
+    
+    // 追加新的分析结果
+    QString newContent = videoSummaryTextEdit->toMarkdown();
+    newContent += QString("**[%1]** %2\n\n").arg(timeStr).arg(shortAnalysis);
+    
+    videoSummaryTextEdit->setMarkdown(newContent);
+    
+    // 自动滚动到底部
+    QTextCursor cursor = videoSummaryTextEdit->textCursor();
+    cursor.movePosition(QTextCursor::End);
+    videoSummaryTextEdit->setTextCursor(cursor);
 }

@@ -1,6 +1,8 @@
 #include "VideoSummaryManager.h"
 #include <QDebug>
 #include <QFileInfo>
+#include <QProcess>
+#include <QCoreApplication>
 
 VideoSummaryManager::VideoSummaryManager(QObject *parent)
     : QObject(parent)
@@ -58,8 +60,12 @@ void VideoSummaryManager::startVideoSummary(const QString &videoPath, int frameR
     
     updateProgress("正在提取视频帧...", 10);
     
-    // 开始提取视频帧
-    frameExtractor->extractFrames(videoPath, frameRate);
+    // 智能选择帧提取间隔
+    double extractionInterval = calculateSmartInterval(videoPath);
+    qDebug() << QString("选择帧提取间隔: %1秒").arg(extractionInterval);
+    
+    // 开始提取视频帧（使用智能间隔）
+    frameExtractor->extractFrames(videoPath, extractionInterval, frameRate);
 }
 
 void VideoSummaryManager::onFrameExtractionFinished(bool success, const QString &message) {
@@ -174,4 +180,83 @@ void VideoSummaryManager::finishWithError(const QString &message) {
     visionAnalyzer->cancelAnalysis();
     
     emit summaryCompleted(false, "", message);
+}
+
+double VideoSummaryManager::calculateSmartInterval(const QString &videoPath) {
+    // 使用FFmpeg获取视频时长
+    QString ffmpegPath = findFFmpegPath();
+    if (ffmpegPath.isEmpty()) {
+        qWarning() << "无法找到FFmpeg，使用默认间隔";
+        return 10.0; // 默认10秒间隔
+    }
+    
+    QProcess ffprobe;
+    QStringList arguments;
+    arguments << "-v" << "quiet"
+              << "-show_entries" << "format=duration"
+              << "-of" << "csv=p=0"
+              << videoPath;
+    
+    ffprobe.start(ffmpegPath.replace("ffmpeg", "ffprobe"), arguments);
+    
+    if (!ffprobe.waitForFinished(5000)) {
+        qWarning() << "获取视频时长超时，使用默认间隔";
+        return 10.0;
+    }
+    
+    QString output = ffprobe.readAllStandardOutput().trimmed();
+    bool ok;
+    double duration = output.toDouble(&ok);
+    
+    if (!ok || duration <= 0) {
+        qWarning() << "无法解析视频时长，使用默认间隔";
+        return 10.0;
+    }
+    
+    qDebug() << QString("视频时长: %1秒").arg(duration);
+    
+    // 智能间隔选择逻辑
+    if (duration < 10.0) {
+        // 视频时长小于10秒，使用2秒间隔
+        qDebug() << "视频时长小于10秒，使用2秒间隔";
+        return 2.0;
+    } else {
+        // 视频时长大于等于10秒，使用10秒间隔
+        qDebug() << "视频时长大于等于10秒，使用10秒间隔";
+        return 10.0;
+    }
+}
+
+QString VideoSummaryManager::findFFmpegPath() const {
+    // 查找FFmpeg可执行文件路径
+    QStringList possiblePaths;
+    
+#ifdef Q_OS_WIN
+    possiblePaths << "ffmpeg.exe"
+                  << "C:/ffmpeg/bin/ffmpeg.exe"
+                  << QCoreApplication::applicationDirPath() + "/ffmpeg.exe"
+                  << QCoreApplication::applicationDirPath() + "/bin/ffmpeg.exe";
+#else
+    possiblePaths << "ffmpeg"
+                  << "/usr/bin/ffmpeg"
+                  << "/usr/local/bin/ffmpeg"
+                  << "/opt/homebrew/bin/ffmpeg"
+                  << QCoreApplication::applicationDirPath() + "/ffmpeg";
+#endif
+    
+    for (const QString &path : possiblePaths) {
+        QFileInfo fileInfo(path);
+        if (fileInfo.exists() && fileInfo.isExecutable()) {
+            return path;
+        }
+        
+        // 尝试在PATH中查找
+        QProcess process;
+        process.start(path, QStringList() << "-version");
+        if (process.waitForFinished(3000) && process.exitCode() == 0) {
+            return path;
+        }
+    }
+    
+    return QString();
 }

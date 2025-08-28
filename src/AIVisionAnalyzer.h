@@ -85,7 +85,7 @@ private:
     
     // 请求限制
     static const int MAX_CONCURRENT_REQUESTS = 1; // 避免API限制
-    static const int REQUEST_TIMEOUT_MS = 120000; // 120秒超时 (thinking模型需要更长时间)
+    static const int REQUEST_TIMEOUT_MS = 180000; // 180秒超时 (thinking模型需要更长时间)
     static const int RETRY_DELAY_MS = 2000; // 重试延迟
 };
 
