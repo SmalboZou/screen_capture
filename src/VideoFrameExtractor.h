@@ -19,6 +19,9 @@ public:
     // 提取视频帧
     void extractFrames(const QString &videoPath, int frameRate = 30);
     
+    // 提取视频帧（支持自定义间隔）
+    void extractFrames(const QString &videoPath, double intervalSeconds, int frameRate = 30);
+    
     // 获取提取的帧图片路径列表
     QStringList getExtractedFrames() const;
     

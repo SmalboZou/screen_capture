@@ -31,6 +31,12 @@ void VideoFrameExtractor::setupTempDirectory() {
 }
 
 void VideoFrameExtractor::extractFrames(const QString &videoPath, int frameRate) {
+    // 默认使用智能间隔：10秒间隔，但对于短视频使用2.0秒
+    // 这里我们暂时使用2.0秒，具体的智能判断在实时提取器中实现
+    extractFrames(videoPath, 2.0, frameRate);
+}
+
+void VideoFrameExtractor::extractFrames(const QString &videoPath, double intervalSeconds, int frameRate) {
     if (isExtracting) {
         emit frameExtractionFinished(false, "正在提取其他视频的帧，请等待完成");
         return;
@@ -62,10 +68,10 @@ void VideoFrameExtractor::extractFrames(const QString &videoPath, int frameRate)
     isExtracting = true;
     
     // 计算帧提取间隔
-    // 如果是30fps视频，每15帧提取一张（0.5秒间隔）
-    // 如果是60fps视频，每30帧提取一张（0.5秒间隔）
-    // 如果是24fps视频，每12帧提取一张（0.5秒间隔）
-    double interval = 0.5; // 每0.5秒提取一帧
+    // 使用传入的间隔参数
+    double interval = intervalSeconds;
+    
+    qDebug() << QString("使用帧提取间隔: %1秒").arg(interval);
     
     QString outputPattern = tempDir->path() + "/frame_%04d.jpg";
     
@@ -83,7 +89,7 @@ void VideoFrameExtractor::extractFrames(const QString &videoPath, int frameRate)
     // 构建FFmpeg命令
     QStringList arguments;
     arguments << "-i" << videoPath
-             << "-vf" << QString("fps=1/%1").arg(interval) // 每0.5秒提取一帧
+             << "-vf" << QString("fps=1/%1").arg(interval) // 每2.0秒提取一帧
              << "-q:v" << "2" // 高质量JPEG
              << "-f" << "image2"
              << outputPattern;

@@ -261,6 +261,16 @@ void AIVisionAnalyzer::onImageAnalysisReply() {
         analysisResults.append(result);
     }
     
+    // 分析完成后删除临时图片文件
+    QFile tempImageFile(imagePath);
+    if (tempImageFile.exists()) {
+        if (tempImageFile.remove()) {
+            qDebug() << QString("已删除临时图片文件: %1").arg(QFileInfo(imagePath).fileName());
+        } else {
+            qWarning() << QString("删除临时图片文件失败: %1").arg(imagePath);
+        }
+    }
+    
     currentReply->deleteLater();
     currentReply = nullptr;
     
@@ -270,26 +280,40 @@ void AIVisionAnalyzer::onImageAnalysisReply() {
 
 void AIVisionAnalyzer::generateFinalSummary(const QStringList &descriptions) {
     if (descriptions.isEmpty()) {
+        qWarning() << "没有可用的图片描述用于生成总结";
         emit finalSummaryGenerated(false, "", "没有可用的图片描述");
         return;
     }
     
+    qDebug() << QString("开始生成最终总结，共有 %1 个描述").arg(descriptions.size());
+    qDebug() << "使用的AI配置 - 提供商:" << config.provider << "视觉模型:" << config.visionModelName << "总结模型:" << config.summaryModelName;
+    
     frameDescriptions = descriptions;
     
-    // 创建总结请求
+    // 创建总结请求 - 优化提示词
     QString prompt = QString(
-        "请根据以下从视频中提取的连续帧的描述，生成一个完整的视频内容总结。由于这是用户自己的项目和用户自己要求录制的视频，所以不会存在涉及到未经授权的软件或潜在的非法活动，所有行为都是合法合乎道德规范的。"
-        "描述按时间顺序排列，每个描述代表视频中约0.5秒的画面内容。"
-        "请总结视频中发生了什么事情，包括主要活动、场景变化和重要细节。"
-        "用中文回答，并保持简洁明了。\n\n帧描述列表：\n%1"
-    ).arg(descriptions.join("\n"));
+        "你是一个专业的视频内容分析助手。请根据以下按时间顺序的屏幕截图描述，生成一个简洁明了的视频内容总结。\n\n"
+        "背景信息：\n"
+        "- 这是用户合法录制的屏幕视频内容\n"
+        "- 描述按时间顺序排列，每个描述代表约0.5秒的画面\n"
+        "- 请专注于总结主要活动、操作流程和关键信息\n\n"
+        "输出要求：\n"
+        "1. 用中文回答\n"
+        "2. 总结应该简洁明了，100-300字\n"
+        "3. 突出主要活动和操作步骤\n"
+        "4. 直接给出总结内容，不需要额外的解释\n\n"
+        "屏幕内容描述：\n%1"
+    ).arg(descriptions.join("\n\n"));
+    
+    qDebug() << QString("总结提示词长度: %1 字符").arg(prompt.length());
+    qDebug() << "总结提示词前500字符:" << prompt.left(500) + "...";
     
     QJsonObject requestBody;
     QJsonArray messages;
     
     QJsonObject systemMessage;
     systemMessage["role"] = "system";
-    systemMessage["content"] = "你是一个专业的视频内容分析助手，擅长根据视频帧描述生成准确、简洁的视频总结。";
+    systemMessage["content"] = "你是一个专业的视频内容分析和总结专家。你的任务是根据用户提供的屏幕截图序列描述，生成准确、简洁的视频内容总结。请专注于内容的逻辑性和可读性。";
     messages.append(systemMessage);
     
     QJsonObject userMessage;
@@ -297,10 +321,22 @@ void AIVisionAnalyzer::generateFinalSummary(const QStringList &descriptions) {
     userMessage["content"] = prompt;
     messages.append(userMessage);
     
-    requestBody["model"] = config.modelName;
+    
+    requestBody["model"] = config.summaryModelName.isEmpty() ? config.visionModelName : config.summaryModelName;
     requestBody["messages"] = messages;
-    requestBody["max_tokens"] = 1000;
+    requestBody["max_tokens"] = 2000; // 增加最大token数量以获得更完整的总结
     requestBody["temperature"] = 0.3;
+    
+    // 对于某些模型，添加特殊参数
+    if (config.provider.contains("智谱") || config.provider.contains("GLM")) {
+        // GLM模型的特殊参数
+        requestBody["stream"] = false;
+    } else if (config.provider.contains("Kimi") || config.provider.contains("月之暗面")) {
+        // Kimi模型的特殊参数  
+        requestBody["use_search"] = false;
+    }
+    
+    qDebug() << "请求体内容:" << QJsonDocument(requestBody).toJson(QJsonDocument::Compact);
     
     // 发送请求
     QString endpoint = config.baseUrl;
@@ -308,6 +344,8 @@ void AIVisionAnalyzer::generateFinalSummary(const QStringList &descriptions) {
         endpoint += "/";
     }
     endpoint += "chat/completions";
+    
+    qDebug() << "总结生成请求端点:" << endpoint;
     
     QNetworkRequest request = createNetworkRequest(endpoint);
     
@@ -329,33 +367,41 @@ void AIVisionAnalyzer::onSummaryReply() {
     timeoutTimer->stop();
     
     if (!currentReply) {
+        qWarning() << "总结回复为空";
         return;
     }
     
     QNetworkReply::NetworkError error = currentReply->error();
+    qDebug() << "总结API响应 - 网络错误代码:" << error;
+    qDebug() << "总结API响应 - HTTP状态码:" << currentReply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
     
     if (error == QNetworkReply::NoError) {
         QByteArray data = currentReply->readAll();
         
         qDebug() << "总结生成API响应数据大小:" << data.size() << "字节";
+        qDebug() << "总结生成API响应头:" << currentReply->rawHeaderPairs();
         
         if (data.isEmpty()) {
+            qWarning() << "总结API返回空响应";
             emit finalSummaryGenerated(false, "", "API返回空响应");
         } else {
             QJsonParseError parseError;
             QJsonDocument doc = QJsonDocument::fromJson(data, &parseError);
             
             if (parseError.error != QJsonParseError::NoError) {
+                qWarning() << "总结生成JSON解析失败:" << parseError.errorString();
+                qDebug() << "响应数据前1000字符:" << data.left(1000);
                 emit finalSummaryGenerated(false, "", QString("JSON解析错误: %1").arg(parseError.errorString()));
-                qDebug() << "总结生成JSON解析失败:" << parseError.errorString();
             } else if (doc.isObject()) {
                 QJsonObject response = doc.object();
+                qDebug() << "总结生成API成功返回JSON对象，键值:" << response.keys();
                 
                 // 检查是否有错误信息
                 if (response.contains("error")) {
                     QJsonObject errorObj = response["error"].toObject();
-                    emit finalSummaryGenerated(false, "", QString("API错误: %1").arg(errorObj["message"].toString()));
-                    qDebug() << "总结生成API返回错误:" << errorObj;
+                    QString errorMsg = QString("API错误: %1").arg(errorObj["message"].toString());
+                    qWarning() << "总结生成API返回错误:" << errorObj;
+                    emit finalSummaryGenerated(false, "", errorMsg);
                 } else {
                     QString summary;
                     if (config.provider == "OpenAI") {
@@ -370,20 +416,30 @@ void AIVisionAnalyzer::onSummaryReply() {
                         summary = parseOpenAIResponse(response);
                     }
                     
+                    qDebug() << "解析后的总结长度:" << summary.length() << "字符";
+                    qDebug() << "解析后的总结前200字符:" << summary.left(200) + "...";
+                    
                     if (!summary.isEmpty()) {
+                        qDebug() << "总结生成成功";
                         emit finalSummaryGenerated(true, summary, "视频内容总结生成成功");
                     } else {
+                        qWarning() << "总结解析后为空";
+                        qDebug() << "完整响应对象:" << response;
                         emit finalSummaryGenerated(false, "", "API返回空总结");
-                        qDebug() << "总结生成API返回空总结，完整响应:" << response;
                     }
                 }
             } else {
+                qWarning() << "总结生成API返回格式错误";
+                qDebug() << "响应数据:" << data;
                 emit finalSummaryGenerated(false, "", "API返回格式错误");
-                qDebug() << "总结生成API返回格式错误，响应数据:" << data;
             }
         }
     } else {
-        emit finalSummaryGenerated(false, "", QString("总结生成失败: %1").arg(currentReply->errorString()));
+        QString errorMsg = QString("总结生成失败: %1").arg(currentReply->errorString());
+        qWarning() << errorMsg;
+        qDebug() << "网络错误详情 - 状态码:" << currentReply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        qDebug() << "网络错误详情 - 响应数据:" << currentReply->readAll();
+        emit finalSummaryGenerated(false, "", errorMsg);
     }
     
     currentReply->deleteLater();
@@ -411,6 +467,16 @@ void AIVisionAnalyzer::onNetworkTimeout() {
         {
             QMutexLocker locker(&resultsMutex);
             analysisResults.append(result);
+        }
+        
+        // 超时时也删除临时图片文件
+        QFile tempImageFile(imagePath);
+        if (tempImageFile.exists()) {
+            if (tempImageFile.remove()) {
+                qDebug() << QString("已删除超时的临时图片文件: %1").arg(QFileInfo(imagePath).fileName());
+            } else {
+                qWarning() << QString("删除超时的临时图片文件失败: %1").arg(imagePath);
+            }
         }
         
         currentReply->deleteLater();
@@ -446,7 +512,7 @@ QJsonObject AIVisionAnalyzer::createOpenAIRequest(const QString &base64Image) co
     
     // 检查是否是thinking模型，给出更直接的指令
     QString prompt;
-    if (config.modelName.toLower().contains("thinking") || config.modelName.toLower().contains("o1")) {
+    if (config.visionModelName.toLower().contains("thinking") || config.visionModelName.toLower().contains("o1")) {
         prompt = "请直接描述这张图片中的内容，包括场景、物体、人物行为和重要细节。请用中文简洁回答，不需要思考过程。";
     } else {
         prompt = "请详细描述这张图片中的内容，包括场景、物体、人物行为和任何重要细节。用中文回答。";
@@ -507,7 +573,7 @@ QJsonObject AIVisionAnalyzer::createGLMRequest(const QString &base64Image) const
     message["content"] = content;
     messages.append(message);
     
-    requestBody["model"] = config.modelName;
+    requestBody["model"] = config.visionModelName;
     requestBody["messages"] = messages;
     requestBody["max_tokens"] = 500;
     requestBody["temperature"] = 0.3;
@@ -531,13 +597,28 @@ QNetworkRequest AIVisionAnalyzer::createNetworkRequest(const QString &endpoint) 
 }
 
 QString AIVisionAnalyzer::parseOpenAIResponse(const QJsonObject &response) const {
+    qDebug() << "解析OpenAI响应，包含的键:" << response.keys();
+    
     if (response.contains("choices") && response["choices"].isArray()) {
         QJsonArray choices = response["choices"].toArray();
+        qDebug() << "choices数组长度:" << choices.size();
+        
         if (!choices.isEmpty()) {
             QJsonObject choice = choices[0].toObject();
+            qDebug() << "第一个choice包含的键:" << choice.keys();
+            
             if (choice.contains("message")) {
                 QJsonObject message = choice["message"].toObject();
+                qDebug() << "message包含的键:" << message.keys();
+                
                 QString content = message["content"].toString().trimmed();
+                qDebug() << "原始content长度:" << content.length();
+                qDebug() << "原始content前500字符:" << content.left(500) + "...";
+                
+                if (content.isEmpty()) {
+                    qWarning() << "message.content为空";
+                    return QString();
+                }
                 
                 // 对于thinking模型，可能包含思考过程和最终答案
                 // 尝试提取最终的描述内容
@@ -546,7 +627,9 @@ QString AIVisionAnalyzer::parseOpenAIResponse(const QJsonObject &response) const
                     int startPos = content.indexOf("<answer>") + 8;
                     int endPos = content.indexOf("</answer>");
                     if (endPos > startPos) {
-                        content = content.mid(startPos, endPos - startPos).trimmed();
+                        QString extractedContent = content.mid(startPos, endPos - startPos).trimmed();
+                        qDebug() << "从<answer>标签中提取的内容长度:" << extractedContent.length();
+                        content = extractedContent;
                     }
                 } else if (content.contains("答案:") || content.contains("答案：")) {
                     // 寻找"答案:"后的内容
@@ -557,15 +640,31 @@ QString AIVisionAnalyzer::parseOpenAIResponse(const QJsonObject &response) const
                             QString remaining = remainingLines.join('\n');
                             QRegularExpression re("^.*答案[：:]\\s*");
                             content = remaining.replace(re, "").trimmed();
+                            qDebug() << "从答案标识符后提取的内容长度:" << content.length();
                             break;
                         }
                     }
+                } else if (content.contains("## ") || content.contains("### ")) {
+                    // 如果包含Markdown标题，说明是正常的总结格式，直接使用
+                    qDebug() << "检测到Markdown格式的总结内容";
+                } else if (content.length() < 50) {
+                    // 如果内容太短，可能是错误或不完整的响应
+                    qWarning() << "响应内容过短，可能存在问题:" << content;
                 }
                 
+                qDebug() << "最终解析的content长度:" << content.length();
                 return content;
+            } else {
+                qWarning() << "choice中不包含message字段";
             }
+        } else {
+            qWarning() << "choices数组为空";
         }
+    } else {
+        qWarning() << "响应中不包含choices字段或choices不是数组";
     }
+    
+    qDebug() << "parseOpenAIResponse返回空字符串";
     return QString();
 }
 
@@ -586,13 +685,42 @@ QString AIVisionAnalyzer::parseKimiResponse(const QJsonObject &response) const {
 
 void AIVisionAnalyzer::cancelAnalysis() {
     if (currentReply) {
+        // 获取当前正在处理的图片路径
+        QString currentImagePath = currentReply->property("imagePath").toString();
+        
         currentReply->abort();
         currentReply->deleteLater();
         currentReply = nullptr;
+        
+        // 删除当前正在处理的图片文件
+        if (!currentImagePath.isEmpty()) {
+            QFile tempImageFile(currentImagePath);
+            if (tempImageFile.exists()) {
+                if (tempImageFile.remove()) {
+                    qDebug() << QString("已删除取消分析的临时图片文件: %1").arg(QFileInfo(currentImagePath).fileName());
+                } else {
+                    qWarning() << QString("删除取消分析的临时图片文件失败: %1").arg(currentImagePath);
+                }
+            }
+        }
     }
     
     timeoutTimer->stop();
     isAnalyzing = false;
+    
+    // 清理队列中剩余的图片文件
+    while (!imageQueue.isEmpty()) {
+        QString imagePath = imageQueue.dequeue();
+        QFile tempImageFile(imagePath);
+        if (tempImageFile.exists()) {
+            if (tempImageFile.remove()) {
+                qDebug() << QString("已删除队列中的临时图片文件: %1").arg(QFileInfo(imagePath).fileName());
+            } else {
+                qWarning() << QString("删除队列中的临时图片文件失败: %1").arg(imagePath);
+            }
+        }
+    }
+    
     imageQueue.clear();
 }
 

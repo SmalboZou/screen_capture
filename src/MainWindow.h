@@ -15,6 +15,7 @@
 #include "SimpleCapture.h"
 #include "AISummaryConfigDialog.h"
 #include "VideoSummaryManager.h"
+#include "RealTimeVideoSummaryManager.h"
 
 class MainWindow : public QMainWindow {
     Q_OBJECT
@@ -34,6 +35,7 @@ private slots:
     void onSummaryConfigClicked();
     void onVideoSummaryProgress(const QString &status, int percentage);
     void onVideoSummaryCompleted(bool success, const QString &summary, const QString &message);
+    void onRealTimeFrameAnalyzed(const QString &analysis, double timestamp);
 
 private:
     void setupUI();
@@ -78,7 +80,8 @@ private:
     // AI视频总结配置
     AISummaryConfig aiSummaryConfig;
     std::unique_ptr<AISummaryConfigDialog> summaryConfigDialog;
-    std::unique_ptr<VideoSummaryManager> videoSummaryManager;
+    std::unique_ptr<VideoSummaryManager> videoSummaryManager; // 录制后分析
+    std::unique_ptr<RealTimeVideoSummaryManager> realTimeVideoSummaryManager; // 实时分析
     QString lastRecordedVideoPath; // 保存最后录制的视频路径
 };
 
