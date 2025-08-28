@@ -35,6 +35,12 @@ void RealTimeVideoSummaryManager::setConfig(const AISummaryConfig &newConfig) {
     visionAnalyzer->setConfig(config);
 }
 
+void RealTimeVideoSummaryManager::setCaptureRegion(int x, int y, int width, int height) {
+    frameExtractor->setCaptureRegion(x, y, width, height);
+    qDebug() << QString("RealTimeVideoSummaryManager: 设置捕获区域 %1,%2 %3x%4")
+                .arg(x).arg(y).arg(width).arg(height);
+}
+
 void RealTimeVideoSummaryManager::startRecording(const QString &videoPath) {
     if (realTimeAnalyzing) {
         qWarning() << "实时视频分析已在进行中";

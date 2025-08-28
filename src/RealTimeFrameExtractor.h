@@ -30,6 +30,9 @@ public:
     
     // 设置录制开始时间（用于计算智能间隔）
     void setRecordingStartTime(qint64 startTime);
+    
+    // 设置捕获区域（与录制时保持一致）
+    void setCaptureRegion(int x, int y, int width, int height);
 
 signals:
     // 新帧已提取 - 发送帧文件路径和时间戳
@@ -53,6 +56,10 @@ private:
     bool extracting;
     int frameCounter;
     qint64 recordingStartTime;
+    
+    // 捕获区域设置
+    bool captureRegionSet;
+    int regionX, regionY, regionWidth, regionHeight;
     
     // 智能间隔参数
     static const int LONG_INTERVAL_SECONDS = 10;  // 长间隔：10秒

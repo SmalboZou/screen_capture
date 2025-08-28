@@ -21,6 +21,9 @@ public:
     // 设置AI配置
     void setConfig(const AISummaryConfig &config);
     
+    // 设置捕获区域（与录制保持一致）
+    void setCaptureRegion(int x, int y, int width, int height);
+    
     // 开始录制时调用 - 启动实时分析
     void startRecording(const QString &videoPath);
     

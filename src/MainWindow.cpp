@@ -492,6 +492,9 @@ void MainWindow::onStartRecording() {
         
         videoCapture->setCaptureRegion(physicalX, physicalY, physicalWidth, physicalHeight);
         
+        // 同时为实时视频总结管理器设置相同的捕获区域
+        realTimeVideoSummaryManager->setCaptureRegion(physicalX, physicalY, physicalWidth, physicalHeight);
+        
         std::cout << "设置录制区域: " << physicalWidth << "x" << physicalHeight 
                   << " (逻辑: " << g.width() << "x" << g.height() 
                   << ", 缩放: " << devicePixelRatio << ")" << std::endl;

@@ -14,6 +14,8 @@ RealTimeFrameExtractor::RealTimeFrameExtractor(QObject *parent)
     , extracting(false)
     , frameCounter(0)
     , recordingStartTime(0)
+    , captureRegionSet(false)
+    , regionX(0), regionY(0), regionWidth(0), regionHeight(0)
 {
     setupTempDirectory();
     
@@ -97,6 +99,17 @@ void RealTimeFrameExtractor::setRecordingStartTime(qint64 startTime) {
     updateExtractionInterval();
 }
 
+void RealTimeFrameExtractor::setCaptureRegion(int x, int y, int width, int height) {
+    regionX = x;
+    regionY = y;
+    regionWidth = width;
+    regionHeight = height;
+    captureRegionSet = true;
+    
+    qDebug() << QString("设置实时帧提取区域: %1,%2 %3x%4")
+                .arg(x).arg(y).arg(width).arg(height);
+}
+
 void RealTimeFrameExtractor::extractCurrentFrame() {
     if (!extracting) {
         return;
@@ -154,8 +167,16 @@ void RealTimeFrameExtractor::extractCurrentFrame() {
     
 #ifdef Q_OS_WIN
     // Windows: 使用gdigrab捕获桌面
-    arguments << "-f" << "gdigrab"
-             << "-i" << "desktop"
+    arguments << "-f" << "gdigrab";
+    
+    if (captureRegionSet) {
+        // 使用指定的区域
+        arguments << "-offset_x" << QString::number(regionX)
+                 << "-offset_y" << QString::number(regionY)
+                 << "-video_size" << QString::number(regionWidth) + "x" + QString::number(regionHeight);
+    }
+    
+    arguments << "-i" << "desktop"
              << "-vframes" << "1"  // 只捕获一帧
              << "-q:v" << "2"      // 高质量JPEG
              << "-y"               // 覆盖已存在文件
@@ -163,19 +184,37 @@ void RealTimeFrameExtractor::extractCurrentFrame() {
 #elif defined(Q_OS_MACOS)
     // macOS: 使用avfoundation捕获屏幕
     arguments << "-f" << "avfoundation"
-             << "-i" << "1"        // 屏幕输入
-             << "-vframes" << "1"  // 只捕获一帧  
+             << "-i" << "1";        // 屏幕输入
+    
+    if (captureRegionSet) {
+        // macOS上使用filter来裁剪区域
+        QString cropFilter = QString("crop=%1:%2:%3:%4")
+                           .arg(regionWidth).arg(regionHeight).arg(regionX).arg(regionY);
+        arguments << "-vf" << cropFilter;
+    }
+    
+    arguments << "-vframes" << "1"  // 只捕获一帧  
              << "-q:v" << "2"      // 高质量JPEG
              << "-y"               // 覆盖已存在文件
              << outputPath;
 #else
     // Linux: 使用x11grab捕获屏幕
-    arguments << "-f" << "x11grab"
-             << "-i" << ":0.0"     // 显示器
-             << "-vframes" << "1"  // 只捕获一帧
-             << "-q:v" << "2"      // 高质量JPEG  
-             << "-y"               // 覆盖已存在文件
-             << outputPath;
+    if (captureRegionSet) {
+        arguments << "-f" << "x11grab"
+                 << "-video_size" << QString::number(regionWidth) + "x" + QString::number(regionHeight)
+                 << "-i" << QString(":0.0+%1,%2").arg(regionX).arg(regionY)
+                 << "-vframes" << "1"  // 只捕获一帧
+                 << "-q:v" << "2"      // 高质量JPEG  
+                 << "-y"               // 覆盖已存在文件
+                 << outputPath;
+    } else {
+        arguments << "-f" << "x11grab"
+                 << "-i" << ":0.0"     // 显示器
+                 << "-vframes" << "1"  // 只捕获一帧
+                 << "-q:v" << "2"      // 高质量JPEG  
+                 << "-y"               // 覆盖已存在文件
+                 << outputPath;
+    }
 #endif
     
     // 启动FFmpeg进程
