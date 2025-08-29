@@ -51,6 +51,7 @@ private slots:
     void processNextImage();
     void onImageAnalysisReply();
     void onSummaryReply();
+    void onBatchSummaryReply();
     void onNetworkTimeout();
     
 private:
@@ -65,6 +66,11 @@ private:
     QString parseGLMResponse(const QJsonObject &response) const;
     QString parseKimiResponse(const QJsonObject &response) const;
     
+    // 分批处理方法
+    void processBatch(int batchIndex, int batchSize);
+    void generateFinalMergedSummary();
+    void generateDirectSummary(const QStringList &descriptions);
+    
     QNetworkAccessManager *networkManager;
     AISummaryConfig config;
     
@@ -76,6 +82,11 @@ private:
     
     // 最终总结
     QStringList frameDescriptions;
+    
+    // 分批总结
+    QStringList batchSummaries;
+    int currentBatchIndex;
+    int totalBatches;
     
     // 状态管理
     bool isAnalyzing;

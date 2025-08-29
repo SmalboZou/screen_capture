@@ -290,30 +290,65 @@ void AIVisionAnalyzer::generateFinalSummary(const QStringList &descriptions) {
     
     frameDescriptions = descriptions;
     
-    // 创建总结请求 - 优化提示词
+    // 判断是否需要分批处理
+    const int BATCH_SIZE = 30; // 每30帧为一批
+    if (descriptions.size() <= BATCH_SIZE) {
+        // 如果描述数量少于等于30个，直接生成总结
+        qDebug() << "描述数量较少，直接生成总结";
+        generateDirectSummary(descriptions);
+    } else {
+        // 分批处理
+        qDebug() << QString("描述数量较多（%1个），开始分批处理，每批%2个").arg(descriptions.size()).arg(BATCH_SIZE);
+        
+        // 初始化批处理状态
+        batchSummaries.clear();
+        currentBatchIndex = 0;
+        totalBatches = (descriptions.size() + BATCH_SIZE - 1) / BATCH_SIZE; // 向上取整
+        
+        qDebug() << QString("总共需要处理 %1 批").arg(totalBatches);
+        
+        // 开始处理第一批
+        processBatch(0, BATCH_SIZE);
+    }
+}
+
+void AIVisionAnalyzer::processBatch(int batchIndex, int batchSize) {
+    int startIndex = batchIndex * batchSize;
+    int endIndex = qMin(startIndex + batchSize, frameDescriptions.size());
+    
+    if (startIndex >= frameDescriptions.size()) {
+        // 所有批次处理完成，生成最终总结
+        qDebug() << QString("所有批次处理完成，共%1批，开始生成最终合并总结").arg(batchSummaries.size());
+        generateFinalMergedSummary();
+        return;
+    }
+    
+    QStringList batchDescriptions = frameDescriptions.mid(startIndex, endIndex - startIndex);
+    
+    qDebug() << QString("处理第%1批（共%2批），包含第%3到第%4帧的描述")
+                .arg(batchIndex + 1).arg(totalBatches).arg(startIndex + 1).arg(endIndex);
+    
+    // 创建批次总结请求
     QString prompt = QString(
-        "你是一个专业的视频内容分析助手。请根据以下按时间顺序的屏幕截图描述，生成一个简洁明了的视频内容总结。\n\n"
+        "你是一个专业的视频内容分析助手。请根据以下按时间顺序的屏幕截图描述，生成这一段视频内容的简洁总结。\n\n"
         "背景信息：\n"
-        "- 这是用户合法录制的屏幕视频内容\n"
-        "- 描述按时间顺序排列，每个描述代表约0.5秒的画面\n"
-        "- 请专注于总结主要活动、操作流程和关键信息\n\n"
+        "- 这是视频的第%1段内容（共%2段）\n"
+        "- 描述按时间顺序排列，前面的描述和后面的描述存在时序关系\n"
+        "- 请专注于总结这一段的主要活动、操作流程和关键信息\n\n"
         "输出要求：\n"
         "1. 用中文回答\n"
-        "2. 总结应该简洁明了，100-300字\n"
-        "3. 突出主要活动和操作步骤\n"
+        "2. 总结应该简洁明了，150-200字\n"
+        "3. 突出这一段的主要活动和操作步骤\n"
         "4. 直接给出总结内容，不需要额外的解释\n\n"
-        "屏幕内容描述：\n%1"
-    ).arg(descriptions.join("\n\n"));
-    
-    qDebug() << QString("总结提示词长度: %1 字符").arg(prompt.length());
-    qDebug() << "总结提示词前500字符:" << prompt.left(500) + "...";
+        "这一段的屏幕内容描述：\n%3"
+    ).arg(batchIndex + 1).arg(totalBatches).arg(batchDescriptions.join("\n\n"));
     
     QJsonObject requestBody;
     QJsonArray messages;
     
     QJsonObject systemMessage;
     systemMessage["role"] = "system";
-    systemMessage["content"] = "你是一个专业的视频内容分析和总结专家。你的任务是根据用户提供的屏幕截图序列描述，生成准确、简洁的视频内容总结。请专注于内容的逻辑性和可读性。";
+    systemMessage["content"] = "你是一个专业的视频内容分析和总结专家。你的任务是根据用户提供的屏幕截图序列描述，生成准确、简洁的视频段落总结。";
     messages.append(systemMessage);
     
     QJsonObject userMessage;
@@ -321,22 +356,17 @@ void AIVisionAnalyzer::generateFinalSummary(const QStringList &descriptions) {
     userMessage["content"] = prompt;
     messages.append(userMessage);
     
-    
     requestBody["model"] = config.summaryModelName.isEmpty() ? config.visionModelName : config.summaryModelName;
     requestBody["messages"] = messages;
-    requestBody["max_tokens"] = 2000; // 增加最大token数量以获得更完整的总结
+    requestBody["max_tokens"] = 500; // 批次总结使用较小的token数
     requestBody["temperature"] = 0.3;
     
     // 对于某些模型，添加特殊参数
     if (config.provider.contains("智谱") || config.provider.contains("GLM")) {
-        // GLM模型的特殊参数
         requestBody["stream"] = false;
     } else if (config.provider.contains("Kimi") || config.provider.contains("月之暗面")) {
-        // Kimi模型的特殊参数  
         requestBody["use_search"] = false;
     }
-    
-    qDebug() << "请求体内容:" << QJsonDocument(requestBody).toJson(QJsonDocument::Compact);
     
     // 发送请求
     QString endpoint = config.baseUrl;
@@ -344,8 +374,6 @@ void AIVisionAnalyzer::generateFinalSummary(const QStringList &descriptions) {
         endpoint += "/";
     }
     endpoint += "chat/completions";
-    
-    qDebug() << "总结生成请求端点:" << endpoint;
     
     QNetworkRequest request = createNetworkRequest(endpoint);
     
@@ -356,6 +384,236 @@ void AIVisionAnalyzer::generateFinalSummary(const QStringList &descriptions) {
     
     QJsonDocument doc(requestBody);
     currentReply = networkManager->post(request, doc.toJson());
+    
+    // 设置当前处理的批次索引
+    currentReply->setProperty("batchIndex", batchIndex);
+    currentReply->setProperty("requestType", "batchSummary");
+    
+    connect(currentReply, &QNetworkReply::finished,
+            this, &AIVisionAnalyzer::onBatchSummaryReply);
+    
+    timeoutTimer->start(REQUEST_TIMEOUT_MS);
+}
+
+void AIVisionAnalyzer::onBatchSummaryReply() {
+    timeoutTimer->stop();
+    
+    if (!currentReply) {
+        qWarning() << "批次总结回复为空";
+        return;
+    }
+    
+    int batchIndex = currentReply->property("batchIndex").toInt();
+    
+    QNetworkReply::NetworkError error = currentReply->error();
+    qDebug() << QString("第%1批总结API响应").arg(batchIndex + 1) << "- 网络错误代码:" << error;
+    
+    if (error == QNetworkReply::NoError) {
+        QByteArray data = currentReply->readAll();
+        
+        if (!data.isEmpty()) {
+            QJsonParseError parseError;
+            QJsonDocument doc = QJsonDocument::fromJson(data, &parseError);
+            
+            if (parseError.error == QJsonParseError::NoError && doc.isObject()) {
+                QJsonObject response = doc.object();
+                
+                if (response.contains("error")) {
+                    QJsonObject errorObj = response["error"].toObject();
+                    qWarning() << QString("第%1批总结API返回错误:").arg(batchIndex + 1) << errorObj;
+                    // 继续处理下一批
+                } else {
+                    QString batchSummary;
+                    if (config.provider == "OpenAI") {
+                        batchSummary = parseOpenAIResponse(response);
+                    } else if (config.provider == "硅基流动 (SiliconFlow)") {
+                        batchSummary = parseSiliconFlowResponse(response);
+                    } else if (config.provider == "智谱AI (GLM)") {
+                        batchSummary = parseGLMResponse(response);
+                    } else if (config.provider == "月之暗面 (Kimi)") {
+                        batchSummary = parseKimiResponse(response);
+                    } else {
+                        batchSummary = parseOpenAIResponse(response);
+                    }
+                    
+                    if (!batchSummary.isEmpty()) {
+                        qDebug() << QString("第%1批总结生成成功，长度:%2字符").arg(batchIndex + 1).arg(batchSummary.length());
+                        
+                        // 存储批次总结
+                        if (batchSummaries.size() <= batchIndex) {
+                            batchSummaries.resize(batchIndex + 1);
+                        }
+                        batchSummaries[batchIndex] = batchSummary;
+                    } else {
+                        qWarning() << QString("第%1批总结解析后为空").arg(batchIndex + 1);
+                    }
+                }
+            } else {
+                qWarning() << QString("第%1批总结JSON解析失败:").arg(batchIndex + 1) << parseError.errorString();
+            }
+        } else {
+            qWarning() << QString("第%1批总结API返回空响应").arg(batchIndex + 1);
+        }
+    } else {
+        qWarning() << QString("第%1批总结网络请求失败:").arg(batchIndex + 1) << currentReply->errorString();
+    }
+    
+    currentReply->deleteLater();
+    currentReply = nullptr;
+    
+    // 处理下一批
+    currentBatchIndex++;
+    
+    // 添加延迟避免API限制
+    QTimer::singleShot(RETRY_DELAY_MS, this, [this]() {
+        processBatch(currentBatchIndex, 30);
+    });
+}
+
+void AIVisionAnalyzer::generateFinalMergedSummary() {
+    // 过滤掉空的批次总结
+    QStringList validBatchSummaries;
+    for (const QString &summary : batchSummaries) {
+        if (!summary.trimmed().isEmpty()) {
+            validBatchSummaries.append(summary.trimmed());
+        }
+    }
+    
+    if (validBatchSummaries.isEmpty()) {
+        qWarning() << "没有有效的批次总结";
+        emit finalSummaryGenerated(false, "", "批次总结生成失败");
+        return;
+    }
+    
+    qDebug() << QString("开始生成最终合并总结，基于%1个批次总结").arg(validBatchSummaries.size());
+    
+    // 创建最终合并总结请求
+    QString prompt = QString(
+        "你是一个专业的视频内容分析助手。请根据以下按时间顺序的视频段落总结，生成一个完整的视频内容总结。\n\n"
+        "背景信息：\n"
+        "- 这些是用户合法录制的屏幕视频的分段总结\n"
+        "- 段落按时间顺序排列，前面的段落先发生，后面的段落后发生\n"
+        "- 请将这些段落整合成一个连贯的完整视频总结\n\n"
+        "输出要求：\n"
+        "1. 用中文回答\n"
+        "2. 总结应该完整而简洁，300-500字\n"
+        "3. 体现整个视频的主要流程和关键活动\n"
+        "4. 保持逻辑连贯性，突出时间顺序\n"
+        "5. 直接给出总结内容，不需要额外的解释\n\n"
+        "视频段落总结：\n%1"
+    ).arg(validBatchSummaries.join("\n\n"));
+    
+    QJsonObject requestBody;
+    QJsonArray messages;
+    
+    QJsonObject systemMessage;
+    systemMessage["role"] = "system";
+    systemMessage["content"] = "你是一个专业的视频内容分析和总结专家。你的任务是将多个视频段落总结整合成一个完整、连贯的视频总结。";
+    messages.append(systemMessage);
+    
+    QJsonObject userMessage;
+    userMessage["role"] = "user";
+    userMessage["content"] = prompt;
+    messages.append(userMessage);
+    
+    requestBody["model"] = config.summaryModelName.isEmpty() ? config.visionModelName : config.summaryModelName;
+    requestBody["messages"] = messages;
+    requestBody["max_tokens"] = 1000; // 最终总结使用更多token
+    requestBody["temperature"] = 0.3;
+    
+    // 对于某些模型，添加特殊参数
+    if (config.provider.contains("智谱") || config.provider.contains("GLM")) {
+        requestBody["stream"] = false;
+    } else if (config.provider.contains("Kimi") || config.provider.contains("月之暗面")) {
+        requestBody["use_search"] = false;
+    }
+    
+    // 发送请求
+    QString endpoint = config.baseUrl;
+    if (!endpoint.endsWith("/")) {
+        endpoint += "/";
+    }
+    endpoint += "chat/completions";
+    
+    QNetworkRequest request = createNetworkRequest(endpoint);
+    
+    if (currentReply) {
+        currentReply->abort();
+        currentReply->deleteLater();
+    }
+    
+    QJsonDocument doc(requestBody);
+    currentReply = networkManager->post(request, doc.toJson());
+    
+    currentReply->setProperty("requestType", "finalSummary");
+    
+    connect(currentReply, &QNetworkReply::finished,
+            this, &AIVisionAnalyzer::onSummaryReply);
+    
+    timeoutTimer->start(REQUEST_TIMEOUT_MS);
+}
+
+void AIVisionAnalyzer::generateDirectSummary(const QStringList &descriptions) {
+    // 直接生成总结的方法（原有逻辑）
+    QString prompt = QString(
+        "你是一个专业的视频内容分析助手。请根据以下按时间顺序的屏幕截图描述，生成一个简洁明了的视频内容总结。\n\n"
+        "背景信息：\n"
+        "- 这是用户合法录制的屏幕视频内容\n"
+        "- 描述按时间顺序排列，前面的描述和后面的描述存在一个时序关系，前面的描述的事件先发生，后面的描述后发生。\n"
+        "- 请专注于总结主要活动、操作流程和关键信息\n\n"
+        "输出要求：\n"
+        "1. 用中文回答\n"
+        "2. 总结应该简洁明了，100-150字\n"
+        "3. 突出主要活动和操作步骤\n"
+        "4. 直接给出总结内容，不需要额外的解释\n\n"
+        "屏幕内容描述：\n%1"
+    ).arg(descriptions.join("\n\n"));
+    
+    qDebug() << QString("直接总结提示词长度: %1 字符").arg(prompt.length());
+    
+    QJsonObject requestBody;
+    QJsonArray messages;
+    
+    QJsonObject systemMessage;
+    systemMessage["role"] = "system";
+    systemMessage["content"] = "你是一个专业的视频内容分析和总结专家。你的任务是根据用户提供的屏幕截图序列描述，生成准确、简洁的视频内容总结。请专注于内容的逻辑性和可读性。描述按时间顺序排列，前面的描述和后面的描述存在一个时序关系，前面的描述的事件先发生，后面的描述后发生。";
+    messages.append(systemMessage);
+    
+    QJsonObject userMessage;
+    userMessage["role"] = "user";
+    userMessage["content"] = prompt;
+    messages.append(userMessage);
+    
+    requestBody["model"] = config.summaryModelName.isEmpty() ? config.visionModelName : config.summaryModelName;
+    requestBody["messages"] = messages;
+    requestBody["max_tokens"] = 800; // 直接总结使用适中的token数
+    requestBody["temperature"] = 0.3;
+    
+    // 对于某些模型，添加特殊参数
+    if (config.provider.contains("智谱") || config.provider.contains("GLM")) {
+        requestBody["stream"] = false;
+    } else if (config.provider.contains("Kimi") || config.provider.contains("月之暗面")) {
+        requestBody["use_search"] = false;
+    }
+    
+    // 发送请求
+    QString endpoint = config.baseUrl;
+    if (!endpoint.endsWith("/")) {
+        endpoint += "/";
+    }
+    endpoint += "chat/completions";
+    
+    QNetworkRequest request = createNetworkRequest(endpoint);
+    
+    if (currentReply) {
+        currentReply->abort();
+        currentReply->deleteLater();
+    }
+    
+    QJsonDocument doc(requestBody);
+    currentReply = networkManager->post(request, doc.toJson());
+    
+    currentReply->setProperty("requestType", "directSummary");
     
     connect(currentReply, &QNetworkReply::finished,
             this, &AIVisionAnalyzer::onSummaryReply);
@@ -371,9 +629,11 @@ void AIVisionAnalyzer::onSummaryReply() {
         return;
     }
     
+    QString requestType = currentReply->property("requestType").toString();
+    
     QNetworkReply::NetworkError error = currentReply->error();
-    qDebug() << "总结API响应 - 网络错误代码:" << error;
-    qDebug() << "总结API响应 - HTTP状态码:" << currentReply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+    qDebug() << "总结API响应 (" << requestType << ") - 网络错误代码:" << error;
+    qDebug() << "总结API响应 (" << requestType << ") - HTTP状态码:" << currentReply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
     
     if (error == QNetworkReply::NoError) {
         QByteArray data = currentReply->readAll();
@@ -420,8 +680,17 @@ void AIVisionAnalyzer::onSummaryReply() {
                     qDebug() << "解析后的总结前200字符:" << summary.left(200) + "...";
                     
                     if (!summary.isEmpty()) {
-                        qDebug() << "总结生成成功";
-                        emit finalSummaryGenerated(true, summary, "视频内容总结生成成功");
+                        QString successMessage;
+                        if (requestType == "directSummary") {
+                            successMessage = "视频内容总结生成成功";
+                        } else if (requestType == "finalSummary") {
+                            successMessage = "分批视频内容总结合并完成";
+                        } else {
+                            successMessage = "视频内容总结生成成功";
+                        }
+                        
+                        qDebug() << "总结生成成功 (" << requestType << ")";
+                        emit finalSummaryGenerated(true, summary, successMessage);
                     } else {
                         qWarning() << "总结解析后为空";
                         qDebug() << "完整响应对象:" << response;
@@ -535,7 +804,7 @@ QJsonObject AIVisionAnalyzer::createOpenAIRequest(const QString &base64Image) co
     
     requestBody["model"] = config.modelName;
     requestBody["messages"] = messages;
-    requestBody["max_tokens"] = 500;
+    requestBody["max_tokens"] = 200;
     requestBody["temperature"] = 0.3;
     
     return requestBody;
@@ -575,7 +844,7 @@ QJsonObject AIVisionAnalyzer::createGLMRequest(const QString &base64Image) const
     
     requestBody["model"] = config.visionModelName;
     requestBody["messages"] = messages;
-    requestBody["max_tokens"] = 500;
+    requestBody["max_tokens"] = 200;
     requestBody["temperature"] = 0.3;
     
     return requestBody;

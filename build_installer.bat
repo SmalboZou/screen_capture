@@ -47,14 +47,14 @@ REM Step 6: Generate installer
 echo Step 6: Generating installer...
 "C:\Program Files (x86)\NSIS\makensis.exe" installer_en.nsi
 
-if exist "%PROJECT_ROOT%AIcp_Setup_v1.0.0.exe" (
+if exist "%PROJECT_ROOT%AIcp_Setup_v1.0.1.exe" (
     echo.
     echo ===================================
     echo SUCCESS! Installer generated successfully!
     echo ===================================
-    echo Installer: "%PROJECT_ROOT%AIcp_Setup_v1.0.0.exe"
+    echo Installer: "%PROJECT_ROOT%AIcp_Setup_v1.0.1.exe"
     echo Size:
-    dir "%PROJECT_ROOT%AIcp_Setup_v1.0.0.exe" | find "AIcp_Setup"
+    dir "%PROJECT_ROOT%AIcp_Setup_v1.0.1.exe" | find "AIcp_Setup"
     echo.
     echo Deploy directory: "%DEPLOY_DIR%"
     echo You can test the program directly from the deploy directory.

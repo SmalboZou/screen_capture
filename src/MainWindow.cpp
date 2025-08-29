@@ -919,16 +919,18 @@ void MainWindow::onVideoSummaryCompleted(bool success, const QString &summary, c
         QString summaryPath;
         if (!lastRecordedVideoPath.isEmpty()) {
             summaryPath = lastRecordedVideoPath;
-            summaryPath.replace(QRegularExpression("\\.(mov|mp4)$", QRegularExpression::CaseInsensitiveOption), "_summary.txt");
+            summaryPath.replace(QRegularExpression("\\.(mov|mp4)$", QRegularExpression::CaseInsensitiveOption), "_summary.md");
             
             QFile summaryFile(summaryPath);
             if (summaryFile.open(QIODevice::WriteOnly | QIODevice::Text)) {
                 QTextStream out(&summaryFile);
-                out << "视频文件: " << QFileInfo(lastRecordedVideoPath).fileName() << "\n";
-                out << "生成时间: " << QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss") << "\n";
-                out << "AI模型: " << aiSummaryConfig.provider << " - " << aiSummaryConfig.modelName << "\n\n";
-                out << "内容总结:\n" << summary << "\n\n";
-                out << "处理信息: " << message << "\n";
+                out << "# 视频内容总结\n\n";
+                out << "## 📹 视频信息\n\n";
+                out << "- **文件名**: " << QFileInfo(lastRecordedVideoPath).fileName() << "\n";
+                out << "- **生成时间**: " << QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss") << "\n";
+                out << "- **AI模型**: " << aiSummaryConfig.provider << " - " << aiSummaryConfig.modelName << "\n\n";
+                out << "## 📋 内容总结\n\n" << summary << "\n\n";
+                // out << "## 🔧 处理信息\n\n" << message << "\n";
                 
                 // 弹窗告知用户保存位置
                 QMessageBox::information(this, "总结完成", 
